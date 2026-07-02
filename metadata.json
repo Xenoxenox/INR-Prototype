@@ -1,0 +1,6 @@
+{
+  "name": "Interactive Narrative Runtime",
+  "description": "An event-driven interactive story execution engine powered by Gemini, featuring visual state tracking, dynamic choices, and a cognitive memory architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

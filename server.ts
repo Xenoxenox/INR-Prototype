@@ -1,0 +1,451 @@
+import express from "express";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import { GoogleGenAI, Type } from "@google/genai";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+
+// Resolve paths for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Lazy initialize Gemini API client
+let aiClient: GoogleGenAI | null = null;
+let isSimulatorMode = false;
+
+function getGeminiClient(): GoogleGenAI {
+  if (aiClient) return aiClient;
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key === "MY_GEMINI_API_KEY" || key.trim() === "") {
+    console.warn("⚠️ GEMINI_API_KEY is not configured or left as default. Running in SIMULATOR fallback mode.");
+    isSimulatorMode = true;
+    throw new Error("Missing GEMINI_API_KEY");
+  }
+
+  try {
+    aiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+    isSimulatorMode = false;
+    return aiClient;
+  } catch (err) {
+    console.error("❌ Failed to initialize GoogleGenAI. Falling back to simulator.", err);
+    isSimulatorMode = true;
+    throw err;
+  }
+}
+
+// Ensure first probe is done gently
+try {
+  getGeminiClient();
+  console.log("✅ GoogleGenAI client initialized successfully.");
+} catch {
+  console.log("ℹ️ Server running in Simulator Mode until key is provided.");
+}
+
+// Fallback Simulator Engine for when API key is missing
+function runSimulatorFallback(scenarioId: string, state: any, memory: any, event: string): any {
+  const cleanEvent = event.toLowerCase();
+  let narrative = "";
+  let runtimeOperations: string[] = [];
+  let executionLogs: string[] = [
+    `Event Captured: ${event}`,
+    "Simulator Fallback Mode Active (No API Key)",
+    "Composing context layers manually...",
+    "Executing deterministic state updates..."
+  ];
+
+  // Deep clone state & memory
+  const nextState = JSON.parse(JSON.stringify(state));
+  const nextMemory = JSON.parse(JSON.stringify(memory));
+
+  if (scenarioId === 'cyberpunk-detective') {
+    if (cleanEvent.includes('decrypt') || cleanEvent.includes('aria')) {
+      narrative = "Kaelen plugs the Saito corporate datacore into his forearm rig. A.R.I.A.'s holographic avatar blinks in his optic feed, her binary eyes wide. 'Kaelen, Saito security protocols are high-grade, but I've bypassed the first firewall. Be careful, a trace signal was dispatched before I could mask our terminal.'";
+      nextState.world.time = "Late Night (Alarm active)";
+      nextState.player.hp = Math.max(10, nextState.player.hp - 5);
+      nextState.player.statusEffects = [...new Set([...nextState.player.statusEffects, 'Hacking Trace (Active)'])];
+      nextState.characters.aria.relationship = Math.min(100, nextState.characters.aria.relationship + 5);
+      nextState.characters.aria.currentActivity = "Bypassing Saito decrypter firewall.";
+      nextState.story.flags.saito_drones_aware = true;
+      runtimeOperations = [
+        "State Update: Timeline advanced",
+        "Player HP: -5 (Neural backlash)",
+        "Player status effect added: Hacking Trace",
+        "Relationship(A.R.I.A.): +5",
+        "Story Flag Committed: saito_drones_aware = true"
+      ];
+    } else if (cleanEvent.includes('vex') || cleanEvent.includes('lounge')) {
+      narrative = "Pushing through the heavy synth-bass thrum at the Red Line lounge, Kaelen finds Vex swirling a glass of glowing synth-gin. She raises a cybernetic eyebrow. 'Kaelen, you look like death. If you have the Saito datacore, let's talk numbers. But Saito tactical squads are already sweeping this block.'";
+      nextState.world.location = "Sector 7: Red Line Cyber-Lounge";
+      nextState.characters.vex.relationship = Math.min(100, nextState.characters.vex.relationship + 10);
+      nextState.characters.vex.currentActivity = "Negotiating for Kaelen's datacore.";
+      nextState.story.flags.met_vex = true;
+      runtimeOperations = [
+        "Location Update: Sector 7: Red Line Cyber-Lounge",
+        "Relationship(Vex): +10",
+        "Story Flag Committed: met_vex = true"
+      ];
+    } else if (cleanEvent.includes('injector') || cleanEvent.includes('dampener') || cleanEvent.includes('heal')) {
+      if (nextState.player.inventory.includes('Neural-Dampener Injector')) {
+        narrative = "Clamping the injector to his neck, Kaelen presses the trigger. A cooling wave of neural stabilizers floods his system. The persistent glitch flickering across his cybernetic vision vanishes, leaving his mind perfectly clear and alert.";
+        nextState.player.hp = Math.min(nextState.player.maxHp, nextState.player.hp + 20);
+        nextState.player.inventory = nextState.player.inventory.filter((i: string) => i !== 'Neural-Dampener Injector');
+        nextState.player.statusEffects = nextState.player.statusEffects.filter((s: string) => s !== 'Neural Glitch (Mild)');
+        runtimeOperations = [
+          "Inventory: -Neural-Dampener Injector",
+          "Player HP: +20",
+          "Status Removed: Neural Glitch (Mild)"
+        ];
+      } else {
+        narrative = "Kaelen searches his pockets, but he has already depleted his supply of neural-dampener injectors. His neural glitch triggers again, blurring his sight.";
+        nextState.player.hp = Math.max(10, nextState.player.hp - 10);
+        runtimeOperations = [
+          "Action Failed: No injector in inventory",
+          "Player HP: -10 (Uncontrolled Neural Glitch)"
+        ];
+      }
+    } else {
+      narrative = `Kaelen takes action: "${event}". Scanning the dark alleyway, he remains alert. The heavy acidic drizzle sizzles against his synth-trenchcoat. Holographic ads flicker overhead, and the constant hum of a Saito security drone is audible in the distance. He must proceed carefully.`;
+      nextState.player.hp = Math.max(10, nextState.player.hp - 2);
+      runtimeOperations = [
+        "State Update: Environmental stress",
+        "Player HP: -2 (Acid rain exposure)"
+      ];
+    }
+
+    nextMemory.working = ["Saito patrol squads are moving nearby.", "Decryption is currently in progress."];
+    nextMemory.episode.push(`Player executed: ${event}`);
+
+    return {
+      narrative,
+      state: nextState,
+      memory: nextMemory,
+      playerChoices: [
+        "Let A.R.I.A. continue hacking the Saito Datacore",
+        "Head inside the Red Line Cyber-Lounge to strike a deal with Vex",
+        "Take cover behind the high-voltage dumpsters to avoid patrol drones",
+        "Use custom neural scan to locate patrol routing"
+      ],
+      runtimeOperations,
+      executionLogs: [...executionLogs, "State Commited successfully."]
+    };
+  } else if (scenarioId === 'steampunk-airship') {
+    if (cleanEvent.includes('boiler') || cleanEvent.includes('steam') || cleanEvent.includes('stabilize')) {
+      narrative = "Clara grabs her heavy brass wrench and climbs the shuddering pipe scaffold. With a forceful twist of the primary release valve, she vents a roaring jet of blue aether-steam into the exhaust channels. The boiler pressure needles settle back from the red-line. 'Boiler stabilized!' she shouts through the tube.";
+      nextState.world.weather = "Stormy (Boiler pressure normal)";
+      nextState.player.hp = Math.max(10, nextState.player.hp - 10); // Heat burn
+      nextState.story.flags.boiler_stabilized = true;
+      nextState.characters.ignis.relationship = Math.min(100, nextState.characters.ignis.relationship + 15);
+      nextState.characters.ignis.status = "Stable (Vented)";
+      nextState.story.activeQuests = nextState.story.activeQuests.map((q: any) =>
+        q.id === 'stabilize-boiler' ? { ...q, status: 'completed' as const } : q
+      );
+      runtimeOperations = [
+        "Quest Completed: Aether Redline",
+        "Player HP: -10 (Steam heat scald)",
+        "Relationship(Ignis): +15",
+        "Story Flag Committed: boiler_stabilized = true"
+      ];
+    } else if (cleanEvent.includes('goggles') || cleanEvent.includes('equip') || cleanEvent.includes('examine')) {
+      narrative = "Clara slips on her Aether-Goggles. Flickering on the brass gears, the specialized lenses reveal the structural flow of the engines. Highlighting a hidden crawlspace under auxiliary engine 2, she spots a dark, oily footprint and a discarded mechanical tool that doesn't belong to the crew.";
+      nextState.story.flags.goggles_equipped = true;
+      nextState.story.flags.saboteur_identified = true;
+      nextState.player.inventory = nextState.player.inventory.filter((i: string) => i !== 'Aether-Goggles');
+      nextState.player.inventory.push('Saboteur\'s Scrap-Tool');
+      runtimeOperations = [
+        "Inventory Update: -Aether-Goggles, +Saboteur's Scrap-Tool",
+        "Story Flags Committed: goggles_equipped = true, saboteur_identified = true",
+        "Discovery: Saboteur evidence located"
+      ];
+    } else {
+      narrative = `Clara performs: "${event}". The Zephyr sways violently under a heavy cloud draft, throwing Clara against the metal catwalk. High-pressure steam continues to hiss menacingly from the central main boilers, which are ticking dangerously.`;
+      nextState.player.hp = Math.max(10, nextState.player.hp - 15);
+      runtimeOperations = [
+        "Environmental Reaction: Heavy airship tilt",
+        "Player HP: -15 (Catwalk crash injury)"
+      ];
+    }
+
+    nextMemory.working = ["The boiler pressure is currently controlled.", "Saboteur tracks discovered in the engine deck."];
+    nextMemory.episode.push(`Player executed: ${event}`);
+
+    return {
+      narrative,
+      state: nextState,
+      memory: nextMemory,
+      playerChoices: [
+        "Speak to Captain Sterling over the communication-tube regarding the saboteur evidence",
+        "Help Ignis repair the cracked regulator gear using your brass wrench",
+        "Pour the Blue Fluid Vial into the primary boiler to catalyze the fuel",
+        "Inspect the auxiliary engine chamber more thoroughly"
+      ],
+      runtimeOperations,
+      executionLogs: [...executionLogs, "State Commited successfully."]
+    };
+  } else {
+    // Cosmic Horror Fallback
+    if (cleanEvent.includes('bookshelf') || cleanEvent.includes('passage') || cleanEvent.includes('clue')) {
+      narrative = "Arthur traces his fingers along the decaying spines of Lord Blackwood's ledger collection. Suddenly, his finger catches on a leather book embossed with a golden tide symbol. Pulling it triggers a soft mechanical click. A heavy bookcase swings back silently, revealing a narrow stone spiral staircase descending into the dark.";
+      nextState.story.flags.unlocked_secret_compartment = true;
+      nextState.world.location = "Blackwood Manor: Secret Cellar Passage";
+      nextState.player.inventory.push('Torn Diary Page');
+      nextState.player.statusEffects = [...new Set([...nextState.player.statusEffects, 'Sanity Sapped (Mild)'])];
+      nextState.story.activeQuests = nextState.story.activeQuests.map((q: any) =>
+        q.id === 'find-clues' ? { ...q, status: 'completed' as const } : q
+      );
+      runtimeOperations = [
+        "Quest Completed: Whispers of Evelyn",
+        "Location Update: Blackwood Manor: Secret Cellar Passage",
+        "Inventory Added: Torn Diary Page",
+        "Status Effect Added: Sanity Sapped (Mild)",
+        "Story Flag Committed: unlocked_secret_compartment = true"
+      ];
+    } else if (cleanEvent.includes('lantern') || cleanEvent.includes('light')) {
+      narrative = "Arthur raises his kerosene lantern high. The golden flame casts long, dancing shadows across the gothic library. For a brief second, the shadows cast by the bookshelves do not match their physical shapes—they stretch like grasping tentacles toward him before snapping back to normal.";
+      nextState.player.statusEffects = nextState.player.statusEffects.filter((s: string) => s !== 'Creeping Dread (Mild)');
+      runtimeOperations = [
+        "Status Effect Removed: Creeping Dread (Mild)",
+        "Environment: Lantern cast shadows distort"
+      ];
+    } else {
+      narrative = `Arthur attempts: "${event}". As he does, a chilling wind whistles through the wooden window frames. The strange scraping noise behind the shelves intensifies, and he hears what sounds like a soft, distorted woman's voice calling: 'Arthur... down here...'`;
+      nextState.player.hp = Math.max(10, nextState.player.hp - 5);
+      runtimeOperations = [
+        "State Update: Creeping dread mental toll",
+        "Player HP: -5 (Mental shock)"
+      ];
+    }
+
+    nextMemory.working = ["The secret cellar passage lies open.", "Eerie whispers are echoing louder."];
+    nextMemory.episode.push(`Player executed: ${event}`);
+
+    return {
+      narrative,
+      state: nextState,
+      memory: nextMemory,
+      playerChoices: [
+        "Descend the secret stone staircase into the pitch-black cellar",
+        "Carefully examine the Torn Diary Page under the lantern light",
+        "Confront Silas the groundskeeper through the window before going deeper",
+        "Read the mysterious leather-bound tome on the library desk"
+      ],
+      runtimeOperations,
+      executionLogs: [...executionLogs, "State Commited successfully."]
+    };
+  }
+}
+
+// ---------------- API ENDPOINTS ----------------
+
+// Reset / Initialize Endpoint
+app.post("/api/inr/init", (req, res) => {
+  const { scenarioId } = req.body;
+  res.json({ status: "ready", scenarioId });
+});
+
+// Event Processor Endpoint
+app.post("/api/inr/event", async (req, res) => {
+  const { scenarioId, state, memory, event } = req.body;
+
+  if (!scenarioId || !state || !memory || !event) {
+    return res.status(400).json({ error: "Missing required fields (scenarioId, state, memory, event)" });
+  }
+
+  try {
+    const ai = getGeminiClient();
+
+    // Context composition for Gemini
+    const systemPrompt = `You are the execution engine of an event-driven Interactive Narrative Runtime (INR).
+Your responsibility is to compute the next state of the world, player, characters, memory, and quests, and generate a concise narrative continuation.
+
+Strict execution loop:
+1. Event Parsing: Determine "What event occurred?" from the input Event.
+2. Context Composition: Assemble the context layers:
+   - Scenario & World facts
+   - Memory layers (Working, Episode, Semantic, Archive)
+   - Player & Character states
+3. Narrative Reasoning: Resolve the event's consequences logically based on player attributes, relationships, and world circumstances. Maintain world, character, and temporal consistency.
+4. State Update: Commit updates to:
+   - World State (day, time, weather, details)
+   - Player State (hp, statusEffects, inventory, attributes)
+   - Character State (relationships, currentActivity, status)
+   - Story State (quests progress, story flags)
+5. Memory Evolution: Shift elements between Working, Episode, Semantic, and Archive layers.
+   - Working: items currently in immediate focus.
+   - Episode: add the most recent event to the list of chronological events.
+   - Semantic: stable, verified facts.
+   - Archive: old facts no longer actively queried.
+6. Structured Commit: Output the updated state, narrative, choices, and logs.
+
+Important Rules:
+- DO NOT generate overly long flowery prose. Keep the "narrative" field under 100-120 words.
+- Maintain consistency! For example, if Kaelen is in Sector 7 and goes to the cyber-lounge, update world.location to "Sector 7: Red Line Cyber-Lounge".
+- Ensure the state update is reflected completely in the JSON response's "state" object. Keep unmodified fields as they are, but update stats, locations, inventories, active quests status, and character relationships correctly.
+- Generate 3 to 5 highly relevant "playerChoices" that arise naturally from the updated state and surroundings.
+- Describe the exact state operations performed in "runtimeOperations" using human-readable committed updates (e.g. "Inventory: +Old Key", "Relationship(Silas): -10").
+- Provide 4-6 lines of technical-looking step-by-step telemetry logs in "executionLogs" showing the runtime process (e.g., "Event parsed: PlayerChoice(Speak to Silas)", "Composing context: Silas cold relationship, library location", "Narrative Reasoning: Silas remains uncooperative but slips hint", "State Commit: Relationship updated, memory appended").`;
+
+    const userContents = `
+=== CURRENT IN-GAME STATE ===
+${JSON.stringify(state, null, 2)}
+
+=== MEMORY LAYERS ===
+${JSON.stringify(memory, null, 2)}
+
+=== PLAYER EVENT / ACTION ===
+"${event}"
+
+Generate the next state, memory, narrative, choices, operations, and execution logs using the schema.`;
+
+    // Define response schema
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        narrative: {
+          type: Type.STRING,
+          description: "A short, atmospheric paragraph (under 120 words) detailing what happens next in response to the action."
+        },
+        state: {
+          type: Type.OBJECT,
+          properties: {
+            world: {
+              type: Type.OBJECT,
+              properties: {
+                currentDay: { type: Type.INTEGER },
+                weather: { type: Type.STRING },
+                time: { type: Type.STRING },
+                location: { type: Type.STRING },
+                details: { type: Type.OBJECT }
+              },
+              required: ["currentDay", "weather", "time", "location"]
+            },
+            player: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                hp: { type: Type.INTEGER },
+                maxHp: { type: Type.INTEGER },
+                inventory: { type: Type.ARRAY, items: { type: Type.STRING } },
+                statusEffects: { type: Type.ARRAY, items: { type: Type.STRING } },
+                attributes: { type: Type.OBJECT }
+              },
+              required: ["name", "hp", "maxHp", "inventory", "statusEffects", "attributes"]
+            },
+            characters: {
+              type: Type.OBJECT,
+              description: "Active character record mapping character IDs to their updated attributes."
+            },
+            story: {
+              type: Type.OBJECT,
+              properties: {
+                activeQuests: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      id: { type: Type.STRING },
+                      title: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      status: { type: Type.STRING }
+                    },
+                    required: ["id", "title", "description", "status"]
+                  }
+                },
+                completedEvents: { type: Type.ARRAY, items: { type: Type.STRING } },
+                flags: { type: Type.OBJECT }
+              },
+              required: ["activeQuests", "completedEvents", "flags"]
+            }
+          },
+          required: ["world", "player", "characters", "story"]
+        },
+        memory: {
+          type: Type.OBJECT,
+          properties: {
+            working: { type: Type.ARRAY, items: { type: Type.STRING } },
+            episode: { type: Type.ARRAY, items: { type: Type.STRING } },
+            semantic: { type: Type.ARRAY, items: { type: Type.STRING } },
+            archive: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["working", "episode", "semantic", "archive"]
+        },
+        playerChoices: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        },
+        runtimeOperations: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        },
+        executionLogs: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      },
+      required: ["narrative", "state", "memory", "playerChoices", "runtimeOperations", "executionLogs"]
+    };
+
+    console.log(`🤖 Invoking Gemini API ('gemini-3.5-flash') for action: "${event}"`);
+
+    const result = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: userContents,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+        temperature: 0.2 // Lower temp for strict state consistency
+      }
+    });
+
+    const parsedResponse = JSON.parse(result.text || "{}");
+    return res.json(parsedResponse);
+
+  } catch (err) {
+    console.log("⚠️ API Mode failed or skipped. running in Simulator Mode fallback.");
+    const fallbackResponse = runSimulatorFallback(scenarioId, state, memory, event);
+    return res.json({
+      ...fallbackResponse,
+      executionLogs: [
+        "API Error: " + (err instanceof Error ? err.message : String(err)),
+        ...fallbackResponse.executionLogs
+      ]
+    });
+  }
+});
+
+// Serve compiled static files in production
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.join(__dirname, "dist");
+  app.use(express.static(distPath));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+} else {
+  // Mount Vite middleware in development
+  import("vite").then(async (viteModule) => {
+    const vite = await viteModule.createServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  });
+}
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 INR Runtime Server listening at http://localhost:${PORT}`);
+});
