@@ -137,7 +137,9 @@ export default function App() {
     ]);
 
     try {
-      const response = await fetch("/api/inr/event", {
+      // v2: operations protocol — state is computed by the server-side RuntimeController,
+      // this component only caches what the runtime returns (plan D3/Option A)
+      const response = await fetch("/api/inr/event/v2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -4,6 +4,9 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { RuntimeController } from "./src/runtime/RuntimeController";
+import { isOperation } from "./src/runtime/OperationValidator";
+import { Operation } from "./src/runtime/types";
 
 dotenv.config();
 
@@ -417,6 +420,157 @@ Generate the next state, memory, narrative, choices, operations, and execution l
 
   } catch (err) {
     console.log("⚠️ API Mode failed or skipped. running in Simulator Mode fallback.");
+    const fallbackResponse = runSimulatorFallback(scenarioId, state, memory, event);
+    return res.json({
+      ...fallbackResponse,
+      executionLogs: [
+        "API Error: " + (err instanceof Error ? err.message : String(err)),
+        ...fallbackResponse.executionLogs
+      ]
+    });
+  }
+});
+
+// Event Processor Endpoint v2 — operations protocol (ADR-003/ADR-007)
+// LLM outputs typed operations; RuntimeController validates & applies them. Runtime owns state.
+app.post("/api/inr/event/v2", async (req, res) => {
+  const { scenarioId, state, memory, event } = req.body;
+
+  if (!scenarioId || !state || !memory || !event) {
+    return res.status(400).json({ error: "Missing required fields (scenarioId, state, memory, event)" });
+  }
+
+  // ponytail: fresh controller per call — state still roundtrips via HTTP; server-side sessions are a later step
+  const runtime = new RuntimeController(state, memory);
+
+  try {
+    const ai = getGeminiClient();
+
+    const systemPrompt = `You are the execution engine of an event-driven Interactive Narrative Runtime (INR).
+You DO NOT output game state. The runtime owns state. You output a list of typed OPERATIONS the runtime will validate and apply.
+
+Available operation types (output exactly these shapes in the "operations" array):
+- { "type": "DamagePlayer", "amount": <positive int>, "source": "<cause>" }
+- { "type": "HealPlayer", "amount": <positive int> }
+- { "type": "AddItem", "itemId": "<item name>" }
+- { "type": "RemoveItem", "itemId": "<item name, must exist in inventory>" }
+- { "type": "UpdateLocation", "location": "<new location string>" }
+- { "type": "ModifyRelationship", "characterId": "<existing character id>", "delta": <int, +/-> }
+- { "type": "UpdateQuestStatus", "questId": "<existing quest id>", "status": "active" | "completed" | "failed" }
+- { "type": "SetFlag", "key": "<flag key>", "value": true | false }
+
+Execution loop:
+1. Parse the player event.
+2. Reason over the provided state and memory layers for consequences. Maintain world, character, and temporal consistency.
+3. Emit the MINIMAL set of operations that realize those consequences. Do not emit no-op changes.
+4. Write a short narrative (under 120 words) consistent with the operations you emitted.
+5. Generate 3 to 5 relevant "playerChoices" arising naturally from the outcome.
+6. Provide 4-6 lines of technical telemetry in "executionLogs" (e.g. "Event parsed: ...", "Reasoning: ...", "Emitting 3 operations").
+
+Rules:
+- characterId MUST be one of the keys in the provided characters record; questId MUST be an existing quest id.
+- Only remove items that are present in the inventory.
+- Amounts are positive integers; direction is encoded by the operation type (Damage vs Heal).`;
+
+    const userContents = `
+=== CURRENT IN-GAME STATE (read-only; you cannot edit it directly) ===
+${JSON.stringify(state, null, 2)}
+
+=== MEMORY LAYERS ===
+${JSON.stringify(memory, null, 2)}
+
+=== PLAYER EVENT / ACTION ===
+"${event}"
+
+Output narrative, operations, playerChoices, executionLogs per the schema.`;
+
+    // Operations schema: one flat object shape covering the union; runtime type-guard + validator enforce details
+    const operationsSchema = {
+      type: Type.OBJECT,
+      properties: {
+        narrative: {
+          type: Type.STRING,
+          description: "A short, atmospheric paragraph (under 120 words) describing what happens."
+        },
+        operations: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: { type: Type.STRING, description: "One of: DamagePlayer, HealPlayer, AddItem, RemoveItem, UpdateLocation, ModifyRelationship, UpdateQuestStatus, SetFlag" },
+              amount: { type: Type.INTEGER, nullable: true },
+              source: { type: Type.STRING, nullable: true },
+              itemId: { type: Type.STRING, nullable: true },
+              location: { type: Type.STRING, nullable: true },
+              characterId: { type: Type.STRING, nullable: true },
+              delta: { type: Type.INTEGER, nullable: true },
+              questId: { type: Type.STRING, nullable: true },
+              status: { type: Type.STRING, nullable: true },
+              key: { type: Type.STRING, nullable: true },
+              value: { type: Type.BOOLEAN, nullable: true }
+            },
+            required: ["type"]
+          }
+        },
+        playerChoices: { type: Type.ARRAY, items: { type: Type.STRING } },
+        executionLogs: { type: Type.ARRAY, items: { type: Type.STRING } }
+      },
+      required: ["narrative", "operations", "playerChoices", "executionLogs"]
+    };
+
+    console.log(`🤖 [v2] Invoking Gemini API for action: "${event}"`);
+
+    const result = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: userContents,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+        responseSchema: operationsSchema,
+        temperature: 0.2
+      }
+    });
+
+    const parsed = JSON.parse(result.text || "{}");
+
+    // Trust boundary: shape-check raw LLM output before treating as Operations
+    const rawOps: unknown[] = Array.isArray(parsed.operations) ? parsed.operations : [];
+    const wellFormed: Operation[] = [];
+    const malformed: unknown[] = [];
+    for (const raw of rawOps) {
+      // Strip nulls injected by the flat schema before the type guard
+      const cleaned = Object.fromEntries(Object.entries(raw as object).filter(([, v]) => v !== null && v !== undefined));
+      if (isOperation(cleaned)) wellFormed.push(cleaned);
+      else malformed.push(raw);
+    }
+
+    const { applied, rejected } = runtime.applyOperations(wellFormed);
+
+    if (!runtime.checkInvariants()) {
+      throw new Error("Invariant violation after applying operations");
+    }
+
+    runtime.appendEpisode(`Player executed: ${event}`);
+
+    return res.json({
+      narrative: parsed.narrative,
+      state: runtime.getState(),
+      memory: runtime.getMemory(),
+      playerChoices: parsed.playerChoices ?? [],
+      runtimeOperations: [
+        ...applied.map((op) => `Applied ${op.type}: ${JSON.stringify(op)}`),
+        ...rejected.map((r) => `Rejected ${r.op.type}: ${r.reason}`)
+      ],
+      executionLogs: [
+        ...(parsed.executionLogs ?? []),
+        `Runtime: ${applied.length} operation(s) applied`,
+        rejected.length > 0 ? `Runtime: ${rejected.length} operation(s) rejected by validator` : null,
+        malformed.length > 0 ? `Runtime: ${malformed.length} malformed operation(s) discarded` : null
+      ].filter(Boolean)
+    });
+
+  } catch (err) {
+    console.log("⚠️ [v2] API Mode failed or skipped. Running Simulator fallback.");
     const fallbackResponse = runSimulatorFallback(scenarioId, state, memory, event);
     return res.json({
       ...fallbackResponse,
