@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# AI tools
+.claude/
+
+# ADR
+docs/adr/
