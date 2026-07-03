@@ -7,11 +7,31 @@ import dotenv from "dotenv";
 import { RuntimeController } from "./src/runtime/RuntimeController";
 import { isOperation } from "./src/runtime/OperationValidator";
 import { Operation } from "./src/runtime/types";
+import type { INREventResponse } from "./src/types";
 
+// ponytail: load .env.local first (user secrets), fall back to .env (defaults)
+dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+const GEMINI_MODEL = "gemini-3.5-flash";
+const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? "";
+const openaiApiKey = process.env.OPENAI_API_KEY ?? "";
+const openaiModel = process.env.OPENAI_MODEL ?? "";
+type OpenAICompatConfig = { baseUrl: string; apiKey: string; model: string };
+
+function readOpenAIConfig(raw: unknown): OpenAICompatConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const cfg = raw as Record<string, unknown>;
+  const baseUrl = typeof cfg.baseUrl === "string" ? cfg.baseUrl.trim() : "";
+  const apiKey = typeof cfg.apiKey === "string" ? cfg.apiKey.trim() : "";
+  const model = typeof cfg.model === "string" ? cfg.model.trim() : "";
+  return baseUrl && apiKey && model ? { baseUrl, apiKey, model } : null;
+}
+
+const envOpenAIConfig = readOpenAIConfig({ baseUrl: openaiBaseUrl, apiKey: openaiApiKey, model: openaiModel });
+const useOpenAI = !!envOpenAIConfig;
 
 app.use(express.json());
 
@@ -52,11 +72,55 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 // Ensure first probe is done gently
-try {
-  getGeminiClient();
-  console.log("✅ GoogleGenAI client initialized successfully.");
-} catch {
-  console.log("ℹ️ Server running in Simulator Mode until key is provided.");
+if (useOpenAI) {
+  console.log("✅ OpenAI-compatible provider configured.");
+} else {
+  try {
+    getGeminiClient();
+    console.log("✅ GoogleGenAI client initialized successfully.");
+  } catch {
+    console.log("ℹ️ Server running in Simulator Mode until key is provided.");
+  }
+}
+
+// ponytail: inline, extract to src/server/openaiCompatService.ts when >80 lines
+async function callOpenAICompat(
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  config: OpenAICompatConfig
+): Promise<string> {
+  const url = config.baseUrl.endsWith("/")
+    ? `${config.baseUrl}chat/completions`
+    : `${config.baseUrl}/chat/completions`;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`OpenAI-compat API error: ${res.status} ${errText}`);
+    }
+
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const raw = data.choices?.[0]?.message?.content ?? "";
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    try {
+      JSON.parse(cleaned);
+      return cleaned;
+    } catch {
+      if (attempt === 1) throw new Error("OpenAI-compat: response failed JSON parse after 2 attempts");
+    }
+  }
+  throw new Error("OpenAI-compat: unreachable");
 }
 
 // Fallback Simulator Engine for when API key is missing
@@ -262,16 +326,16 @@ app.post("/api/inr/init", (req, res) => {
 
 // Event Processor Endpoint
 app.post("/api/inr/event", async (req, res) => {
-  const { scenarioId, state, memory, event } = req.body;
+  const { scenarioId, state, memory, event, llmConfig } = req.body;
 
   if (!scenarioId || !state || !memory || !event) {
     return res.status(400).json({ error: "Missing required fields (scenarioId, state, memory, event)" });
   }
 
   try {
-    const ai = getGeminiClient();
+    const openAIConfig = readOpenAIConfig(llmConfig) ?? envOpenAIConfig;
 
-    // Context composition for Gemini
+    // Context composition for LLM providers
     const systemPrompt = `You are the execution engine of an event-driven Interactive Narrative Runtime (INR).
 Your responsibility is to compute the next state of the world, player, characters, memory, and quests, and generate a concise narrative continuation.
 
@@ -402,20 +466,34 @@ Generate the next state, memory, narrative, choices, operations, and execution l
       required: ["narrative", "state", "memory", "playerChoices", "runtimeOperations", "executionLogs"]
     };
 
-    console.log(`🤖 Invoking Gemini API ('gemini-3.5-flash') for action: "${event}"`);
+    let parsedResponse: INREventResponse;
 
-    const result = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: userContents,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-        temperature: 0.2 // Lower temp for strict state consistency
-      }
-    });
+    if (openAIConfig) {
+      console.log(`🤖 Invoking OpenAI-compatible API ('${openAIConfig.model}') for action: "${event}"`);
+      const systemWithSchema = `${systemPrompt}\n\nYou MUST respond with valid JSON matching this schema:\n${JSON.stringify(responseSchema, null, 2)}`;
+      const rawJson = await callOpenAICompat(
+        [{ role: "system", content: systemWithSchema }, { role: "user", content: userContents }],
+        openAIConfig
+      );
+      parsedResponse = JSON.parse(rawJson) as INREventResponse;
+    } else {
+      const ai = getGeminiClient();
+      console.log(`🤖 Invoking Gemini API ('${GEMINI_MODEL}') for action: "${event}"`);
 
-    const parsedResponse = JSON.parse(result.text || "{}");
+      const result = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: userContents,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: "application/json",
+          responseSchema: responseSchema,
+          temperature: 0.2 // Lower temp for strict state consistency
+        }
+      });
+
+      parsedResponse = JSON.parse(result.text || "{}") as INREventResponse;
+    }
+
     return res.json(parsedResponse);
 
   } catch (err) {
@@ -434,18 +512,18 @@ Generate the next state, memory, narrative, choices, operations, and execution l
 // Event Processor Endpoint v2 — operations protocol (ADR-003/ADR-007)
 // LLM outputs typed operations; RuntimeController validates & applies them. Runtime owns state.
 app.post("/api/inr/event/v2", async (req, res) => {
-  const { scenarioId, state, memory, event } = req.body;
+  const { scenarioId, state, memory, event, llmConfig } = req.body;
 
   if (!scenarioId || !state || !memory || !event) {
     return res.status(400).json({ error: "Missing required fields (scenarioId, state, memory, event)" });
   }
 
+  const openAIConfig = readOpenAIConfig(llmConfig) ?? envOpenAIConfig;
+
   // ponytail: fresh controller per call — state still roundtrips via HTTP; server-side sessions are a later step
   const runtime = new RuntimeController(state, memory);
 
   try {
-    const ai = getGeminiClient();
-
     const systemPrompt = `You are the execution engine of an event-driven Interactive Narrative Runtime (INR).
 You DO NOT output game state. The runtime owns state. You output a list of typed OPERATIONS the runtime will validate and apply.
 
@@ -518,20 +596,33 @@ Output narrative, operations, playerChoices, executionLogs per the schema.`;
       required: ["narrative", "operations", "playerChoices", "executionLogs"]
     };
 
-    console.log(`🤖 [v2] Invoking Gemini API for action: "${event}"`);
+    let parsed: any;
 
-    const result = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: userContents,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-        responseSchema: operationsSchema,
-        temperature: 0.2
-      }
-    });
+    if (openAIConfig) {
+      console.log(`🤖 [v2] Invoking OpenAI-compatible API ('${openAIConfig.model}') for action: "${event}"`);
+      const systemWithSchema = `${systemPrompt}\n\nYou MUST respond with valid JSON matching this schema:\n${JSON.stringify(operationsSchema, null, 2)}`;
+      const rawJson = await callOpenAICompat(
+        [{ role: "system", content: systemWithSchema }, { role: "user", content: userContents }],
+        openAIConfig
+      );
+      parsed = JSON.parse(rawJson);
+    } else {
+      const ai = getGeminiClient();
+      console.log(`🤖 [v2] Invoking Gemini API ('${GEMINI_MODEL}') for action: "${event}"`);
 
-    const parsed = JSON.parse(result.text || "{}");
+      const result = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: userContents,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: "application/json",
+          responseSchema: operationsSchema,
+          temperature: 0.2
+        }
+      });
+
+      parsed = JSON.parse(result.text || "{}");
+    }
 
     // Trust boundary: shape-check raw LLM output before treating as Operations
     const rawOps: unknown[] = Array.isArray(parsed.operations) ? parsed.operations : [];

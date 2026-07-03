@@ -12,3 +12,6 @@ coverage/
 
 # ADR
 docs/adr/
+
+# Local smoke test evidence
+artifacts/

@@ -30,6 +30,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { SCENARIOS } from "./scenarios";
 import { Scenario, RuntimeState, MemoryLayers, NarrativeTurn, Quest, CharacterState } from "./types";
 
+type LLMConfig = { baseUrl: string; apiKey: string; model: string };
+const emptyLlmConfig: LLMConfig = { baseUrl: "", apiKey: "", model: "" };
+
 export default function App() {
   // Scenario & Game States
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
@@ -48,6 +51,20 @@ export default function App() {
   const [isDevConsoleOpen, setIsDevConsoleOpen] = useState<boolean>(false);
   const [isSimulatorMode, setIsSimulatorMode] = useState<boolean>(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => {
+    try {
+      const saved = localStorage.getItem("inr.openaiCompatConfig");
+      if (!saved) return emptyLlmConfig;
+      const parsed = JSON.parse(saved) as Partial<LLMConfig>;
+      return {
+        baseUrl: parsed.baseUrl ?? "",
+        apiKey: parsed.apiKey ?? "",
+        model: parsed.model ?? ""
+      };
+    } catch {
+      return emptyLlmConfig;
+    }
+  });
 
   // Scroll ref for narrative log
   const narrativeEndRef = useRef<HTMLDivElement>(null);
@@ -137,6 +154,15 @@ export default function App() {
     ]);
 
     try {
+      const trimmedLlmConfig = {
+        baseUrl: llmConfig.baseUrl.trim(),
+        apiKey: llmConfig.apiKey.trim(),
+        model: llmConfig.model.trim()
+      };
+      const requestLlmConfig = trimmedLlmConfig.baseUrl && trimmedLlmConfig.apiKey && trimmedLlmConfig.model
+        ? trimmedLlmConfig
+        : null;
+
       // v2: operations protocol — state is computed by the server-side RuntimeController,
       // this component only caches what the runtime returns (plan D3/Option A)
       const response = await fetch("/api/inr/event/v2", {
@@ -147,6 +173,7 @@ export default function App() {
           state: gameState,
           memory: memoryState,
           event: eventText,
+          ...(requestLlmConfig ? { llmConfig: requestLlmConfig } : {}),
         }),
       });
 
@@ -196,6 +223,10 @@ export default function App() {
   useEffect(() => {
     narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history, latestNarrative]);
+
+  useEffect(() => {
+    localStorage.setItem("inr.openaiCompatConfig", JSON.stringify(llmConfig));
+  }, [llmConfig]);
 
   // Dev state modification helpers
   const handleModifyAttribute = (key: string, val: number) => {
@@ -432,6 +463,45 @@ export default function App() {
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="bg-slate-900/30 border border-slate-800 rounded-lg p-5 max-w-4xl mx-auto mb-6 font-mono">
+                <div className="flex items-center gap-2 text-teal-400 font-bold mb-4 text-xs uppercase tracking-wider">
+                  <KeyRound className="h-4 w-4" />
+                  <span>Custom API</span>
+                </div>
+                <div className="grid md:grid-cols-3 gap-3">
+                  <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
+                    <span>Base URL</span>
+                    <input
+                      type="url"
+                      value={llmConfig.baseUrl}
+                      onChange={(e) => setLlmConfig({ ...llmConfig, baseUrl: e.target.value })}
+                      placeholder="https://api.openai.com/v1"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
+                    />
+                  </label>
+                  <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
+                    <span>API Key</span>
+                    <input
+                      type="password"
+                      value={llmConfig.apiKey}
+                      onChange={(e) => setLlmConfig({ ...llmConfig, apiKey: e.target.value })}
+                      placeholder="sk-..."
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
+                    />
+                  </label>
+                  <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
+                    <span>Model</span>
+                    <input
+                      type="text"
+                      value={llmConfig.model}
+                      onChange={(e) => setLlmConfig({ ...llmConfig, model: e.target.value })}
+                      placeholder="gpt-4o"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
+                    />
+                  </label>
+                </div>
               </div>
 
               {/* Config & Telemetry explanation */}
