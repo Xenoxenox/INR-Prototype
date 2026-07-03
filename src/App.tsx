@@ -345,7 +345,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <h1 className="font-sans font-bold text-lg tracking-tight text-white">INR Prototype</h1>
               <span className="text-[10px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-2 py-0.5 rounded font-mono uppercase tracking-wider">
-                V1.0.4-EventDriven
+                V1.0.5
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono">Interactive Narrative Runtime Engine</p>
