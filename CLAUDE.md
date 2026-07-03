@@ -12,7 +12,7 @@ npm run start        # run production bundle (dist/server.cjs)
 npm run lint         # tsc --noEmit (TypeScript type-check only; no ESLint configured)
 ```
 
-Requires `GEMINI_API_KEY` in `.env.local`. Without it, the app runs in simulator fallback mode with hardcoded deterministic story branches.
+Requires either `GEMINI_API_KEY` in `.env.local` or a complete OpenAI-compatible config (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`). Without either, the app runs in simulator fallback mode with hardcoded deterministic story branches.
 
 ## Architecture
 
@@ -23,7 +23,8 @@ Full-stack TypeScript monolith: a single Express process serves both the REST AP
 Two API endpoints:
 
 - `POST /api/inr/init` — stateless, just echoes `{ status: "ready", scenarioId }`.
-- `POST /api/inr/event` — core engine. Receives `{ scenarioId, state, memory, event }`, calls Gemini (`gemini-2.0-flash`) with a structured JSON schema response, returns a full replacement `RuntimeState` + `MemoryLayers`. Falls back to `runSimulatorFallback()` on API key absence or error.
+- `POST /api/inr/event` — legacy core engine. Receives `{ scenarioId, state, memory, event }`, calls Gemini/OpenAI-compatible LLM with a structured JSON schema response, returns a full replacement `RuntimeState` + `MemoryLayers`. Falls back to `runSimulatorFallback()` on API key absence or error.
+- `POST /api/inr/event/v2` — current frontend path. Receives `{ scenarioId, state, memory, event, llmConfig? }`, asks the LLM for typed operations, validates/applies them through `RuntimeController`, then returns updated state/memory. `llmConfig` wins over env vars only when all three OpenAI-compatible fields are present.
 
 The server is **stateless** — the entire game state round-trips on every event call. No session storage or database.
 
@@ -31,7 +32,9 @@ The server is **stateless** — the entire game state round-trips on every event
 
 Single large component (~1155 lines) holding all UI and state logic via `useState`. No sub-components are extracted. The full `gameState` and `memoryState` are replaced on each API response (not delta-patched).
 
-**Event flow:** user picks a choice or types a custom event → `handleExecuteEvent()` POSTs to `/api/inr/event` → response replaces `gameState` + `memoryState` → new `NarrativeTurn` appended to `history`.
+**Event flow:** user picks a choice or types a custom event → `handleExecuteEvent()` POSTs to `/api/inr/event/v2` → response replaces `gameState` + `memoryState` → new `NarrativeTurn` appended to `history`.
+
+The Custom API fields on the scenario-selection screen are frontend-only storage (`localStorage`) until an event is executed. Do not assume an external provider is active just because fields are visible; verify the `/api/inr/event/v2` request includes redacted `llmConfig` and the response has no `"API Error:"`.
 
 **UI layout (3-column when a scenario is active):**
 - Left sidebar — world state, player state (HP bar, attributes, inventory, status effects), actors (relationship meters), quests
@@ -70,3 +73,8 @@ TailwindCSS v4 via Vite plugin (`@tailwindcss/vite`). Fonts: Inter, JetBrains Mo
 - `coverImagePrompt` field on each scenario is defined but no image generation is implemented.
 - `isSimulatorMode` is inferred client-side by checking if `executionLogs` contains `"API Error:"` — there's no explicit flag from the server.
 - No test framework is configured.
+- `npm run dev` is `tsx server.ts`; server-side edits require restarting the dev server. Vite HMR only refreshes frontend changes.
+- When adding optional OpenAI-compatible env examples, keep `.env.example` values blank. Non-empty fake placeholders make fresh checkouts choose the OpenAI path and fail before Gemini fallback.
+- Do not call `getGeminiClient()` before provider dispatch. It blocks OpenAI-compatible runs on machines without `GEMINI_API_KEY`.
+- Chrome DevTools network exports include request bodies. Redact or delete raw request evidence before saving artifacts because `llmConfig.apiKey` is sent in the request body.
+- Background dev servers started from Codex sandboxed `Start-Process` may be reaped after the command exits. For browser smoke tests, prefer a user-started `npm run dev` or explicitly approved unsandboxed process.
