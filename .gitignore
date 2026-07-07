@@ -7,8 +7,9 @@ coverage/
 .env*
 !.env.example
 
-# AI tools
-.claude/
+# AI tools — ignore contents but allow skills/ to be tracked
+.claude/*
+!.claude/skills/
 
 # ADR
 docs/adr/
