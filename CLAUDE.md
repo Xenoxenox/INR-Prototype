@@ -34,7 +34,7 @@ Single large component (~1155 lines) holding all UI and state logic via `useStat
 
 **Event flow:** user picks a choice or types a custom event → `handleExecuteEvent()` POSTs to `/api/inr/event/v2` → response replaces `gameState` + `memoryState` → new `NarrativeTurn` appended to `history`.
 
-The Custom API fields on the scenario-selection screen are frontend-only storage (`localStorage`) until an event is executed. Do not assume an external provider is active just because fields are visible; verify the `/api/inr/event/v2` request includes redacted `llmConfig` and the response has no `"API Error:"`.
+The Custom API fields live in the header Settings modal and are frontend-only storage (`localStorage`) until an event is executed. Do not assume an external provider is active just because fields are configured; verify the `/api/inr/event/v2` request includes redacted `llmConfig` and the response `provider` is not `"simulator"`.
 
 **UI layout (3-column when a scenario is active):**
 - Left sidebar — world state, player state (HP bar, attributes, inventory, status effects), actors (relationship meters), quests
@@ -71,10 +71,10 @@ TailwindCSS v4 via Vite plugin (`@tailwindcss/vite`). Fonts: Inter, JetBrains Mo
 ## Known Issues / Notes
 
 - `coverImagePrompt` field on each scenario is defined but no image generation is implemented.
-- `isSimulatorMode` is inferred client-side by checking if `executionLogs` contains `"API Error:"` — there's no explicit flag from the server.
+- `/api/inr/event/v2` returns `provider: "gemini" | "openai-compat" | "simulator"`; the frontend mode indicator reads that field. If UI mode looks stale after server edits, restart `npm run dev` because Vite HMR does not reload `server.ts`.
 - No test framework is configured.
 - `npm run dev` is `tsx server.ts`; server-side edits require restarting the dev server. Vite HMR only refreshes frontend changes.
 - When adding optional OpenAI-compatible env examples, keep `.env.example` values blank. Non-empty fake placeholders make fresh checkouts choose the OpenAI path and fail before Gemini fallback.
 - Do not call `getGeminiClient()` before provider dispatch. It blocks OpenAI-compatible runs on machines without `GEMINI_API_KEY`.
-- Chrome DevTools network exports include request bodies. Redact or delete raw request evidence before saving artifacts because `llmConfig.apiKey` is sent in the request body.
+- Chrome DevTools network exports include request bodies. Redact or delete raw request evidence before saving artifacts because `llmConfig.apiKey` is sent in the request body. Put screenshots and smoke evidence under `artifacts/<semantic-run-name>/`, not the repo root.
 - Background dev servers started from Codex sandboxed `Start-Process` may be reaped after the command exits. For browser smoke tests, prefer a user-started `npm run dev` or explicitly approved unsandboxed process.
