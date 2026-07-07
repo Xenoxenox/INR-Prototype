@@ -1,0 +1,8 @@
+{
+  "scenarioId": "steampunk-airship",
+  "mode": "manual",
+  "events": [
+    "Stabilize the boiler before it hits the redline",
+    "Equip the Aether-Goggles and examine the engine deck"
+  ]
+}
