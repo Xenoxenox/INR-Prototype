@@ -1,0 +1,45 @@
+#!/bin/bash
+# commit-msg — Principles 2 (blank line) & 3 (meaningful body)
+# Codewhale's global commit-msg already handles subject length and punctuation.
+# This hook supplements it with blank-line and body-quality checks,
+# then chains to the global hook.
+
+msgfile="$1"
+GLOBAL_HOOK="$HOME/.githooks/commit-msg"
+
+# --- Principle 2c: blank line between subject and body ---
+subject=$(head -1 "$msgfile")
+body_line2=$(sed -n '2p' "$msgfile")
+body_trimmed=$(tail -n +2 "$msgfile" | sed '/^$/d')
+
+if [ -n "$body_trimmed" ] && [ -n "$body_line2" ]; then
+  echo "commit-msg: no blank line between subject and body."
+  echo "  Insert an empty line after the subject line."
+  exit 1
+fi
+
+# --- Principle 3: body should not be a bare file list ---
+if [ -n "$body_trimmed" ]; then
+  file_list_lines=0
+  total_body_lines=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    ((total_body_lines++))
+    if [[ "$line" =~ ^[[:space:]]*(src/|scripts/|eval-scripts/|server\.|package\.|vite\.|tsconfig\.|artifacts/|docs/|\.) ]]; then
+      ((file_list_lines++))
+    fi
+  done <<< "$body_trimmed"
+
+  if [ $total_body_lines -gt 0 ] && [ $file_list_lines -eq $total_body_lines ]; then
+    echo "commit-msg: body appears to be only a file list."
+    echo "  The diff already shows what changed. Explain why the change matters,"
+    echo "  what risk it avoids, or what invariant it preserves."
+    exit 1
+  fi
+fi
+
+# --- Chain to codewhale global hook ---
+if [ -x "$GLOBAL_HOOK" ]; then
+  exec "$GLOBAL_HOOK" "$@"
+fi
+exit 0

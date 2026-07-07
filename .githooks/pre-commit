@@ -1,0 +1,10 @@
+#!/bin/bash
+# pre-commit — chain to codewhale global hook
+# Codewhale's global pre-commit already handles Principle 1 (atomic categories).
+# This wrapper ensures it runs, allowing project-level extensions in the future.
+
+GLOBAL_HOOK="$HOME/.githooks/pre-commit"
+if [ -x "$GLOBAL_HOOK" ]; then
+  exec "$GLOBAL_HOOK" "$@"
+fi
+exit 0
