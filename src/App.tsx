@@ -130,7 +130,7 @@ export default function App() {
         id: "init",
         event: "Scenario Started",
         narrative: scenario.description,
-        runtimeOperations: ["Local Sandbox Mode Mode Activated"],
+        runtimeOperations: ["Local Sandbox Mode Activated"],
         timestamp: new Date().toLocaleTimeString()
       }]);
     } finally {
@@ -369,15 +369,15 @@ export default function App() {
             <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-md border border-slate-800 text-xs font-mono">
               <div className={`h-2.5 w-2.5 rounded-full ${isSimulatorMode ? 'bg-amber-500 animate-pulse' : 'bg-green-500 animate-pulse'}`} />
               <span className={isSimulatorMode ? 'text-amber-400 font-medium' : 'text-green-400 font-medium'}>
-                {isSimulatorMode ? 'Simulator Mode' : 'Gemini AI Mode'}
+                {isSimulatorMode ? 'Simulator Mode' : 'AI Mode'}
               </span>
               <div className="group relative">
                 <HelpCircle className="h-3.5 w-3.5 text-slate-500 hover:text-slate-300 cursor-pointer" />
                 <div className="absolute right-0 top-6 hidden group-hover:block w-72 bg-slate-900 border border-slate-800 text-[11px] p-3 rounded-lg shadow-xl text-slate-300 z-50">
                   {isSimulatorMode ? (
-                    "No API Key provided in Secrets panel. Running on static fallback simulation. Set GEMINI_API_KEY to unlock limitless generative possibilities!"
+                    "No LLM provider reachable. Running on the static fallback simulator. Set GEMINI_API_KEY on the server or fill in the Custom API panel on the scenario screen to enable live generation."
                   ) : (
-                    "Running on full-stack server-side Gemini 3.5. Generates narrative prose, dynamic choices, state updates, and updates the memory hierarchy."
+                    "Running on the server-side LLM provider (Gemini or your Custom API). Generates narrative prose, dynamic choices, state updates, and memory commits."
                   )}
                 </div>
               </div>
@@ -432,10 +432,11 @@ export default function App() {
                   const isCyber = scenario.id === 'cyberpunk-detective';
                   const isSteam = scenario.id === 'steampunk-airship';
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={scenario.id}
                       onClick={() => handleSelectScenario(scenario)}
-                      className="group relative bg-slate-900/40 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-6 cursor-pointer transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-teal-950/20"
+                      className="group relative text-left bg-slate-900/40 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-6 cursor-pointer transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-teal-950/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-500"
                     >
                       {/* Gradient overlay background */}
                       <div className={`absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r ${
@@ -460,7 +461,7 @@ export default function App() {
                         <span>Initialize Runtime</span>
                         <ChevronRight className="h-4 w-4 transform group-hover:translate-x-1 transition" />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -470,11 +471,13 @@ export default function App() {
                   <KeyRound className="h-4 w-4" />
                   <span>Custom API</span>
                 </div>
-                <div className="grid md:grid-cols-3 gap-3">
+                <form onSubmit={(e) => e.preventDefault()} className="grid md:grid-cols-3 gap-3">
                   <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
                     <span>Base URL</span>
                     <input
                       type="url"
+                      name="llmBaseUrl"
+                      autoComplete="url"
                       value={llmConfig.baseUrl}
                       onChange={(e) => setLlmConfig({ ...llmConfig, baseUrl: e.target.value })}
                       placeholder="https://api.openai.com/v1"
@@ -485,6 +488,8 @@ export default function App() {
                     <span>API Key</span>
                     <input
                       type="password"
+                      name="llmApiKey"
+                      autoComplete="off"
                       value={llmConfig.apiKey}
                       onChange={(e) => setLlmConfig({ ...llmConfig, apiKey: e.target.value })}
                       placeholder="sk-..."
@@ -495,13 +500,15 @@ export default function App() {
                     <span>Model</span>
                     <input
                       type="text"
+                      name="llmModel"
+                      autoComplete="off"
                       value={llmConfig.model}
                       onChange={(e) => setLlmConfig({ ...llmConfig, model: e.target.value })}
                       placeholder="gpt-4o"
                       className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
                     />
                   </label>
-                </div>
+                </form>
               </div>
 
               {/* Config & Telemetry explanation */}
@@ -822,7 +829,7 @@ export default function App() {
                             onClick={() => handleExecuteEvent(choice)}
                             className="text-left px-4 py-2.5 text-xs font-mono bg-slate-950 hover:bg-slate-900 active:bg-slate-950 border border-slate-800 hover:border-teal-500/50 rounded-lg text-slate-300 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed group flex justify-between items-center"
                           >
-                            <span className="pr-4 leading-normal truncate">{choice}</span>
+                            <span className="pr-4 leading-normal">{choice}</span>
                             <ChevronRight className="h-4 w-4 text-slate-600 group-hover:text-teal-400 transform group-hover:translate-x-0.5 transition" />
                           </button>
                         ))}
@@ -852,7 +859,7 @@ export default function App() {
                           disabled={isLoading}
                           value={customEvent}
                           onChange={(e) => setCustomEvent(e.target.value)}
-                          placeholder="Inject state actions directly... (e.g. 'Confront Silas about Evelyn\'s room')"
+                          placeholder="Inject state actions directly... (e.g. 'Confront Silas about Evelyn's room')"
                           className="flex-1 pl-8 pr-4 py-2.5 bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded-lg text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none transition"
                         />
                         <button
