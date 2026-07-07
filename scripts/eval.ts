@@ -8,15 +8,27 @@
 //
 // Output: eval-latest.md (human review) + eval-latest.jsonl (raw, diff/replay).
 
-import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { SCENARIOS } from "../src/scenarios";
 import type { RuntimeState, MemoryLayers, Scenario } from "../src/types";
 
 const BASE_URL = "http://localhost:3000";
 const EVAL_DIR = join(process.cwd(), "eval-scripts");
-const REPORT = join(process.cwd(), "eval-latest.md");
-const JSONL = join(process.cwd(), "eval-latest.jsonl");
+const ARTIFACTS_DIR = join(process.cwd(), "artifacts", "eval");
+
+// ponytail: colons invalid on Windows filenames; replace with hyphens
+function runTimestamp(): string {
+  return new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "");
+}
+
+function evalPaths(ts: string) {
+  mkdirSync(ARTIFACTS_DIR, { recursive: true });
+  return {
+    md: join(ARTIFACTS_DIR, `eval-${ts}.md`),
+    jsonl: join(ARTIFACTS_DIR, `eval-${ts}.jsonl`),
+  };
+}
 
 interface EvalScript {
   scenarioId: string;
@@ -115,8 +127,8 @@ async function runScript(script: EvalScript): Promise<TurnResult[]> {
   return results;
 }
 
-function writeReport(all: TurnResult[]): void {
-  const ts = new Date().toISOString();
+function writeReport(all: TurnResult[], ts: string): { md: string; jsonl: string } {
+  const { md, jsonl } = evalPaths(ts);
   const failed = all.filter((t) => t.invariants.length > 0);
   const rejected = all.reduce((n, t) => n + t.rejectedCount, 0);
 
@@ -139,7 +151,7 @@ function writeReport(all: TurnResult[]): void {
     )
     .join("\n");
 
-  const md =
+  const content =
     `# INR Eval — ${ts}\n\n` +
     `**Turns:** ${all.length} · **Invariant failures:** ${failed.length} · **Rejected operations:** ${rejected}\n\n` +
     `## Correctness\n\n` +
@@ -147,8 +159,9 @@ function writeReport(all: TurnResult[]): void {
     `|---|---|---|---|---|\n${rows}\n\n` +
     `## Narrative Log (human review)\n\n${log}\n`;
 
-  writeFileSync(REPORT, md, "utf-8");
-  writeFileSync(JSONL, all.map((t) => JSON.stringify(t)).join("\n") + "\n", "utf-8");
+  writeFileSync(md, content, "utf-8");
+  writeFileSync(jsonl, all.map((t) => JSON.stringify(t)).join("\n") + "\n", "utf-8");
+  return { md, jsonl };
 }
 
 async function main(): Promise<void> {
@@ -181,9 +194,10 @@ async function main(): Promise<void> {
     console.log("done");
   }
 
-  writeReport(all);
+  const ts = runTimestamp();
+  const { md } = writeReport(all, ts);
   const failed = all.filter((t) => t.invariants.length > 0).length;
-  console.log(`\n${REPORT} · ${all.length} turns · ${failed} invariant failure(s)`);
+  console.log(`\n${md} · ${all.length} turns · ${failed} invariant failure(s)`);
   process.exit(failed > 0 ? 1 : 0);
 }
 
