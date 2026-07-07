@@ -271,7 +271,8 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
       narrative = "Arthur traces his fingers along the decaying spines of Lord Blackwood's ledger collection. Suddenly, his finger catches on a leather book embossed with a golden tide symbol. Pulling it triggers a soft mechanical click. A heavy bookcase swings back silently, revealing a narrow stone spiral staircase descending into the dark.";
       nextState.story.flags.unlocked_secret_compartment = true;
       nextState.world.location = "Blackwood Manor: Secret Cellar Passage";
-      nextState.player.inventory.push('Torn Diary Page');
+      if (!nextState.player.inventory.includes('Torn Diary Page'))
+        nextState.player.inventory.push('Torn Diary Page');
       nextState.player.statusEffects = [...new Set([...nextState.player.statusEffects, 'Sanity Sapped (Mild)'])];
       nextState.story.activeQuests = nextState.story.activeQuests.map((q: any) =>
         q.id === 'find-clues' ? { ...q, status: 'completed' as const } : q
