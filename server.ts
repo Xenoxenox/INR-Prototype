@@ -198,6 +198,7 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
     nextMemory.episode.push(`Player executed: ${event}`);
 
     return {
+      provider: "simulator",
       narrative,
       state: nextState,
       memory: nextMemory,
@@ -251,6 +252,7 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
     nextMemory.episode.push(`Player executed: ${event}`);
 
     return {
+      provider: "simulator",
       narrative,
       state: nextState,
       memory: nextMemory,
@@ -301,6 +303,7 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
     nextMemory.episode.push(`Player executed: ${event}`);
 
     return {
+      provider: "simulator",
       narrative,
       state: nextState,
       memory: nextMemory,
@@ -499,8 +502,9 @@ Generate the next state, memory, narrative, choices, operations, and execution l
   } catch (err) {
     console.log("⚠️ API Mode failed or skipped. running in Simulator Mode fallback.");
     const fallbackResponse = runSimulatorFallback(scenarioId, state, memory, event);
+    const { provider: _provider, ...fallbackV1 } = fallbackResponse;
     return res.json({
-      ...fallbackResponse,
+      ...fallbackV1,
       executionLogs: [
         "API Error: " + (err instanceof Error ? err.message : String(err)),
         ...fallbackResponse.executionLogs
@@ -597,8 +601,10 @@ Output narrative, operations, playerChoices, executionLogs per the schema.`;
     };
 
     let parsed: any;
+    let provider: "gemini" | "openai-compat" = "gemini";
 
     if (openAIConfig) {
+      provider = "openai-compat";
       console.log(`🤖 [v2] Invoking OpenAI-compatible API ('${openAIConfig.model}') for action: "${event}"`);
       const systemWithSchema = `${systemPrompt}\n\nYou MUST respond with valid JSON matching this schema:\n${JSON.stringify(operationsSchema, null, 2)}`;
       const rawJson = await callOpenAICompat(
@@ -644,6 +650,7 @@ Output narrative, operations, playerChoices, executionLogs per the schema.`;
     runtime.appendEpisode(`Player executed: ${event}`);
 
     return res.json({
+      provider: provider,
       narrative: parsed.narrative,
       state: runtime.getState(),
       memory: runtime.getMemory(),
@@ -665,6 +672,7 @@ Output narrative, operations, playerChoices, executionLogs per the schema.`;
     const fallbackResponse = runSimulatorFallback(scenarioId, state, memory, event);
     return res.json({
       ...fallbackResponse,
+      provider: "simulator",
       executionLogs: [
         "API Error: " + (err instanceof Error ? err.message : String(err)),
         ...fallbackResponse.executionLogs

@@ -12,6 +12,7 @@ import {
   BookOpen,
   Terminal,
   Sliders,
+  ChevronLeft,
   ChevronRight,
   Play,
   RotateCcw,
@@ -24,7 +25,8 @@ import {
   Cpu,
   Layers,
   FileText,
-  KeyRound
+  KeyRound,
+  Settings
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { SCENARIOS } from "./scenarios";
@@ -51,6 +53,11 @@ export default function App() {
   const [isDevConsoleOpen, setIsDevConsoleOpen] = useState<boolean>(false);
   const [isSimulatorMode, setIsSimulatorMode] = useState<boolean>(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [leftOpen, setLeftOpen] = useState<boolean>(true);
+  const [rightOpen, setRightOpen] = useState<boolean>(true);
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+  const [rememberConfig, setRememberConfig] = useState<boolean>(true);
+  const [changedFields, setChangedFields] = useState<Set<string>>(new Set());
   const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => {
     try {
       const saved = localStorage.getItem("inr.openaiCompatConfig");
@@ -65,6 +72,7 @@ export default function App() {
       return emptyLlmConfig;
     }
   });
+  const [draftLlmConfig, setDraftLlmConfig] = useState<LLMConfig>(llmConfig);
 
   // Scroll ref for narrative log
   const narrativeEndRef = useRef<HTMLDivElement>(null);
@@ -183,9 +191,17 @@ export default function App() {
 
       const result = await response.json();
 
-      // Check if we are running in API or Simulator mode
-      const hasApiError = result.executionLogs?.some((log: string) => log.includes("API Error"));
-      setIsSimulatorMode(hasApiError);
+      setIsSimulatorMode(result.provider === "simulator");
+
+      const changed = new Set<string>();
+      if (result.state?.player?.hp !== gameState.player.hp) changed.add("player.hp");
+      for (const id of Object.keys(result.state?.characters ?? {})) {
+        if (result.state.characters[id]?.relationship !== gameState.characters[id]?.relationship) {
+          changed.add(`char.${id}.relationship`);
+        }
+      }
+      setChangedFields(changed);
+      window.setTimeout(() => setChangedFields(new Set()), 700);
 
       setLatestNarrative(result.narrative);
       setGameState(result.state);
@@ -224,9 +240,20 @@ export default function App() {
     narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history, latestNarrative]);
 
-  useEffect(() => {
-    localStorage.setItem("inr.openaiCompatConfig", JSON.stringify(llmConfig));
-  }, [llmConfig]);
+  const openSettings = () => {
+    setDraftLlmConfig(llmConfig);
+    setSettingsOpen(true);
+  };
+
+  const confirmSettings = () => {
+    setLlmConfig(draftLlmConfig);
+    if (rememberConfig) {
+      localStorage.setItem("inr.openaiCompatConfig", JSON.stringify(draftLlmConfig));
+    } else {
+      localStorage.removeItem("inr.openaiCompatConfig");
+    }
+    setSettingsOpen(false);
+  };
 
   // Dev state modification helpers
   const handleModifyAttribute = (key: string, val: number) => {
@@ -344,8 +371,8 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-sans font-bold text-lg tracking-tight text-white">INR Prototype</h1>
-              <span className="text-[10px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-2 py-0.5 rounded font-mono uppercase tracking-wider">
-                V1.0.5
+              <span className="text-[11px] bg-teal-500/10 text-teal-400 border border-teal-500/20 px-2 py-0.5 rounded font-mono uppercase tracking-wider">
+                V1.0.6
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono">Interactive Narrative Runtime Engine</p>
@@ -373,9 +400,9 @@ export default function App() {
               </span>
               <div className="group relative">
                 <HelpCircle className="h-3.5 w-3.5 text-slate-500 hover:text-slate-300 cursor-pointer" />
-                <div className="absolute right-0 top-6 hidden group-hover:block w-72 bg-slate-900 border border-slate-800 text-[11px] p-3 rounded-lg shadow-xl text-slate-300 z-50">
+                <div className="absolute right-0 top-6 hidden group-hover:block w-72 bg-slate-900 border border-slate-800 text-[12px] p-3 rounded-lg shadow-xl text-slate-300 z-50">
                   {isSimulatorMode ? (
-                    "No LLM provider reachable. Running on the static fallback simulator. Set GEMINI_API_KEY on the server or fill in the Custom API panel on the scenario screen to enable live generation."
+                    "No LLM provider reachable. Running on the static fallback simulator. Set GEMINI_API_KEY on the server or open Settings and fill in the Custom API fields to enable live generation."
                   ) : (
                     "Running on the server-side LLM provider (Gemini or your Custom API). Generates narrative prose, dynamic choices, state updates, and memory commits."
                   )}
@@ -384,6 +411,14 @@ export default function App() {
             </div>
           )}
 
+          <button
+            type="button"
+            onClick={openSettings}
+            title="Settings"
+            className="h-8 w-8 flex items-center justify-center bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 hover:text-teal-400 rounded-md transition"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
           {selectedScenario && (
             <button
               onClick={() => {
@@ -401,6 +436,72 @@ export default function App() {
         </div>
       </header>
 
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSettingsOpen(false)} />
+          <div className="absolute left-1/2 top-1/2 w-[480px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 bg-slate-900 border border-slate-700 rounded-lg p-6 shadow-2xl font-mono">
+            <div className="flex items-center gap-2 text-teal-400 font-bold mb-4 text-xs uppercase tracking-wider">
+              <KeyRound className="h-4 w-4" />
+              <span>Custom API</span>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); confirmSettings(); }} className="space-y-3">
+              <label className="block space-y-1 text-[11px] uppercase tracking-wider text-slate-500">
+                <span>Base URL</span>
+                <input
+                  type="url"
+                  name="llmBaseUrl"
+                  autoComplete="url"
+                  value={draftLlmConfig.baseUrl}
+                  onChange={(e) => setDraftLlmConfig({ ...draftLlmConfig, baseUrl: e.target.value })}
+                  placeholder="https://api.openai.com/v1"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
+                />
+              </label>
+              <label className="block space-y-1 text-[11px] uppercase tracking-wider text-slate-500">
+                <span>API Key</span>
+                <input
+                  type="password"
+                  name="llmApiKey"
+                  autoComplete="off"
+                  value={draftLlmConfig.apiKey}
+                  onChange={(e) => setDraftLlmConfig({ ...draftLlmConfig, apiKey: e.target.value })}
+                  placeholder="sk-..."
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
+                />
+              </label>
+              <label className="block space-y-1 text-[11px] uppercase tracking-wider text-slate-500">
+                <span>Model</span>
+                <input
+                  type="text"
+                  name="llmModel"
+                  autoComplete="off"
+                  value={draftLlmConfig.model}
+                  onChange={(e) => setDraftLlmConfig({ ...draftLlmConfig, model: e.target.value })}
+                  placeholder="gpt-4o"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={rememberConfig}
+                  onChange={(e) => setRememberConfig(e.target.checked)}
+                  className="h-4 w-4 accent-teal-500"
+                />
+                <span>Remember on this device</span>
+              </label>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setSettingsOpen(false)} className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded transition">
+                  Cancel
+                </button>
+                <button type="submit" className="px-3 py-1.5 text-xs bg-teal-600 hover:bg-teal-500 border border-teal-500/50 text-white rounded transition">
+                  Confirm
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* Main Container */}
       <main className="flex-1 flex overflow-hidden">
         <AnimatePresence mode="wait">
@@ -445,7 +546,7 @@ export default function App() {
                       
                       <div>
                         <div className="flex justify-between items-start mb-3">
-                          <span className="text-[10px] font-mono tracking-wider uppercase text-slate-500 bg-slate-950 px-2 py-0.5 rounded">
+                          <span className="text-[11px] font-mono tracking-wider uppercase text-slate-500 bg-slate-950 px-2 py-0.5 rounded">
                             {scenario.genre}
                           </span>
                         </div>
@@ -466,58 +567,13 @@ export default function App() {
                 })}
               </div>
 
-              <div className="bg-slate-900/30 border border-slate-800 rounded-lg p-5 max-w-4xl mx-auto mb-6 font-mono">
-                <div className="flex items-center gap-2 text-teal-400 font-bold mb-4 text-xs uppercase tracking-wider">
-                  <KeyRound className="h-4 w-4" />
-                  <span>Custom API</span>
-                </div>
-                <form onSubmit={(e) => e.preventDefault()} className="grid md:grid-cols-3 gap-3">
-                  <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
-                    <span>Base URL</span>
-                    <input
-                      type="url"
-                      name="llmBaseUrl"
-                      autoComplete="url"
-                      value={llmConfig.baseUrl}
-                      onChange={(e) => setLlmConfig({ ...llmConfig, baseUrl: e.target.value })}
-                      placeholder="https://api.openai.com/v1"
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
-                    />
-                  </label>
-                  <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
-                    <span>API Key</span>
-                    <input
-                      type="password"
-                      name="llmApiKey"
-                      autoComplete="off"
-                      value={llmConfig.apiKey}
-                      onChange={(e) => setLlmConfig({ ...llmConfig, apiKey: e.target.value })}
-                      placeholder="sk-..."
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
-                    />
-                  </label>
-                  <label className="space-y-1 text-[10px] uppercase tracking-wider text-slate-500">
-                    <span>Model</span>
-                    <input
-                      type="text"
-                      name="llmModel"
-                      autoComplete="off"
-                      value={llmConfig.model}
-                      onChange={(e) => setLlmConfig({ ...llmConfig, model: e.target.value })}
-                      placeholder="gpt-4o"
-                      className="w-full bg-slate-950 border border-slate-800 focus:border-teal-500/70 rounded px-3 py-2 text-xs text-slate-200 placeholder:text-slate-700 focus:outline-none normal-case tracking-normal"
-                    />
-                  </label>
-                </form>
-              </div>
-
               {/* Config & Telemetry explanation */}
               <div className="bg-slate-900/20 border border-slate-900 rounded-lg p-6 max-w-4xl mx-auto font-mono text-xs text-slate-400">
                 <div className="flex items-center gap-2 text-teal-400 font-bold mb-3">
                   <Terminal className="h-4 w-4" />
                   <span>INR EXECUTION PIPELINE BRIEFING</span>
                 </div>
-                <div className="grid md:grid-cols-3 gap-4 text-[11px] leading-relaxed">
+                <div className="grid md:grid-cols-3 gap-4 text-[12px] leading-relaxed">
                   <div>
                     <h4 className="text-slate-300 font-bold mb-1">1. Event Dispatch</h4>
                     <p>Every choice or custom prose input is caught as an Event payload, cataloged with timestamp metadata.</p>
@@ -538,7 +594,8 @@ export default function App() {
             <div className="flex-1 flex overflow-hidden">
               
               {/* Left Sidebar: Runtime State Panel */}
-              <div className="w-80 border-r border-slate-800 bg-slate-900/30 flex flex-col overflow-y-auto">
+              {leftOpen && (
+              <div className="w-80 border-r border-slate-800 bg-slate-900/30 flex flex-col overflow-y-auto max-[1280px]:hidden">
                 
                 {/* Section: World State */}
                 <div className="p-4 border-b border-slate-800 bg-slate-900/50">
@@ -567,7 +624,7 @@ export default function App() {
                     </div>
                   </div>
                   {gameState?.world.details && (
-                    <p className="text-[10px] text-slate-400 italic mt-2 leading-normal">
+                    <p className="text-[11px] text-slate-400 italic mt-2 leading-normal">
                       {Object.values(gameState.world.details).join(" ")}
                     </p>
                   )}
@@ -580,7 +637,7 @@ export default function App() {
                       <User className="h-4 w-4 text-teal-500" />
                       <span>Player State</span>
                     </div>
-                    <span className="text-[11px] font-mono text-slate-300">{gameState?.player.name}</span>
+                    <span className="text-[12px] font-mono text-slate-300">{gameState?.player.name}</span>
                   </div>
 
                   {/* HP Progress Bar */}
@@ -593,20 +650,24 @@ export default function App() {
                         {gameState?.player.hp}/{gameState?.player.maxHp}
                       </span>
                     </div>
-                    <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                    <motion.div
+                      className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800"
+                      animate={changedFields.has("player.hp") ? { backgroundColor: ["rgba(250,204,21,0.35)", "rgb(15,23,42)"] } : { backgroundColor: "rgb(15,23,42)" }}
+                      transition={{ duration: 0.6 }}
+                    >
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${
                           (gameState?.player.hp || 0) < 30 ? "bg-red-500 animate-pulse" : (gameState?.player.hp || 0) < 60 ? "bg-amber-500" : "bg-teal-500"
                         }`}
                         style={{ width: `${((gameState?.player.hp || 0) / (gameState?.player.maxHp || 100)) * 100}%` }}
                       />
-                    </div>
+                    </motion.div>
                   </div>
 
                   {/* Attributes */}
                   <div className="mb-3">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1.5">Attribute Matrix</span>
-                    <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono">
+                    <span className="text-[11px] font-mono text-slate-500 uppercase block mb-1.5">Attribute Matrix</span>
+                    <div className="grid grid-cols-2 gap-1.5 text-[12px] font-mono">
                       {gameState && Object.entries(gameState.player.attributes).map(([attr, val]) => (
                         <div key={attr} className="bg-slate-900/60 px-2 py-1.5 rounded border border-slate-850 flex justify-between items-center">
                           <span className="text-slate-400 capitalize">{attr}</span>
@@ -618,7 +679,7 @@ export default function App() {
 
                   {/* Inventory */}
                   <div className="mb-2">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1.5">Cargo Inventory</span>
+                    <span className="text-[11px] font-mono text-slate-500 uppercase block mb-1.5">Cargo Inventory</span>
                     {gameState?.player.inventory.length === 0 ? (
                       <div className="text-slate-500 text-xs font-mono italic p-2 border border-dashed border-slate-850 text-center rounded">
                         Empty Cargo Inventory
@@ -628,7 +689,7 @@ export default function App() {
                         {gameState?.player.inventory.map((item, idx) => (
                           <span
                             key={idx}
-                            className="text-[10px] font-mono bg-slate-900/90 text-slate-300 px-2 py-1 rounded border border-slate-800 hover:border-teal-500/50 cursor-pointer transition flex items-center gap-1"
+                            className="text-[11px] font-mono bg-slate-900/90 text-slate-300 px-2 py-1 rounded border border-slate-800 hover:border-teal-500/50 cursor-pointer transition flex items-center gap-1"
                           >
                             <Zap className="h-2.5 w-2.5 text-teal-400" />
                             {item}
@@ -641,12 +702,12 @@ export default function App() {
                   {/* Status Effects */}
                   {gameState?.player.statusEffects && gameState.player.statusEffects.length > 0 && (
                     <div className="mt-3">
-                      <span className="text-[10px] font-mono text-slate-500 uppercase block mb-1">Status Overlays</span>
+                      <span className="text-[11px] font-mono text-slate-500 uppercase block mb-1">Status Overlays</span>
                       <div className="flex flex-wrap gap-1">
                         {gameState.player.statusEffects.map((status, idx) => (
                           <span
                             key={idx}
-                            className="text-[9px] font-mono bg-red-950/40 text-red-400 px-1.5 py-0.5 rounded border border-red-900/40"
+                            className="text-[10px] font-mono bg-red-950/40 text-red-400 px-1.5 py-0.5 rounded border border-red-900/40"
                           >
                             ⚠️ {status}
                           </span>
@@ -670,20 +731,24 @@ export default function App() {
                         <div key={id} className="bg-slate-950 p-3 rounded-lg border border-slate-800/80 text-xs font-mono space-y-2">
                           <div className="flex justify-between items-center">
                             <span className="text-slate-200 font-bold">{char.name}</span>
-                            <span className="text-[10px] bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded border border-slate-850 uppercase">
+                            <span className="text-[11px] bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded border border-slate-850 uppercase">
                               {char.status}
                             </span>
                           </div>
                           
                           {/* Relationship slider display */}
                           <div className="space-y-1">
-                            <div className="flex justify-between text-[10px] text-slate-500">
+                            <div className="flex justify-between text-[11px] text-slate-500">
                               <span>Attitude:</span>
                               <span className={rel < 0 ? "text-red-400" : rel > 30 ? "text-green-400" : "text-slate-400"}>
                                 {rel > 0 ? `+${rel}` : rel} (Affinity)
                               </span>
                             </div>
-                            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden relative">
+                            <motion.div
+                              className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden relative"
+                              animate={changedFields.has(`char.${id}.relationship`) ? { backgroundColor: ["rgba(45,212,191,0.35)", "rgb(15,23,42)"] } : { backgroundColor: "rgb(15,23,42)" }}
+                              transition={{ duration: 0.6 }}
+                            >
                               {/* Central divider */}
                               <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-850" />
                               <div
@@ -695,10 +760,10 @@ export default function App() {
                                   marginLeft: rel < 0 ? `${50 - Math.abs(rel)/2}%` : '50%'
                                 }}
                               />
-                            </div>
+                            </motion.div>
                           </div>
 
-                          <div className="text-[10px] text-slate-400 leading-normal">
+                          <div className="text-[11px] text-slate-400 leading-normal">
                             <span className="text-slate-500">Activity:</span> {char.currentActivity}
                           </div>
                         </div>
@@ -718,7 +783,7 @@ export default function App() {
                       <div key={quest.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs font-mono">
                         <div className="flex justify-between items-start gap-1 mb-1.5">
                           <span className="text-slate-200 font-bold truncate max-w-[150px]">{quest.title}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-semibold ${
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase font-semibold ${
                             quest.status === 'completed'
                               ? 'bg-emerald-950/50 text-emerald-400 border-emerald-900/40'
                               : quest.status === 'failed'
@@ -728,13 +793,14 @@ export default function App() {
                             {quest.status}
                           </span>
                         </div>
-                        <p className="text-[10px] text-slate-400 leading-normal">{quest.description}</p>
+                        <p className="text-[11px] text-slate-400 leading-normal">{quest.description}</p>
                       </div>
                     ))}
                   </div>
                 </div>
 
               </div>
+              )}
 
               {/* Center Panel & Right Tabs container */}
               <div className="flex-1 flex overflow-hidden">
@@ -742,6 +808,23 @@ export default function App() {
                 {/* Center Panel: Primary Output and Action Inputs */}
                 <div className="flex-1 flex flex-col justify-between bg-slate-950 relative overflow-hidden">
                   
+                  <button
+                    type="button"
+                    onClick={() => setLeftOpen((open) => !open)}
+                    title={leftOpen ? "Hide left panel" : "Show left panel"}
+                    className="absolute left-3 top-4 z-20 h-8 w-8 flex items-center justify-center bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-teal-400 rounded-md transition"
+                  >
+                    {leftOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRightOpen((open) => !open)}
+                    title={rightOpen ? "Hide right panel" : "Show right panel"}
+                    className="absolute right-3 top-4 z-20 h-8 w-8 flex items-center justify-center bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-teal-400 rounded-md transition"
+                  >
+                    {rightOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                  </button>
+
                   {/* Decorative terminal ambient background matrix */}
                   <div className="absolute inset-0 pointer-events-none opacity-[0.02] bg-[radial-gradient(#0d9488_1px,transparent_1px)] [background-size:16px_16px]" />
 
@@ -770,7 +853,7 @@ export default function App() {
                           }`}
                         >
                           {/* Turn metadata header */}
-                          <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 border-b border-slate-900 pb-2">
+                          <div className="flex justify-between items-center text-[11px] font-mono text-slate-500 border-b border-slate-900 pb-2">
                             <span className="flex items-center gap-1.5 uppercase font-semibold text-slate-400">
                               <Terminal className="h-3.5 w-3.5 text-teal-500" />
                               Event: {turn.event}
@@ -788,10 +871,10 @@ export default function App() {
                           {/* Render Operations performed */}
                           {turn.runtimeOperations && turn.runtimeOperations.length > 0 && i === history.length - 1 && (
                             <div className="pt-2">
-                              <span className="text-[10px] font-mono text-teal-400/80 block mb-1">State Commit Logs:</span>
+                              <span className="text-[11px] font-mono text-teal-400/80 block mb-1">State Commit Logs:</span>
                               <div className="flex flex-wrap gap-1.5">
                                 {turn.runtimeOperations.map((op, opIdx) => (
-                                  <span key={opIdx} className="text-[9px] font-mono bg-slate-950 text-slate-400 border border-slate-800/80 px-2 py-0.5 rounded">
+                                  <span key={opIdx} className="text-[10px] font-mono bg-slate-950 text-slate-400 border border-slate-800/80 px-2 py-0.5 rounded">
                                     ⚙️ {op}
                                   </span>
                                 ))}
@@ -818,7 +901,7 @@ export default function App() {
                     
                     {/* Dynamic Action Selection */}
                     <div className="space-y-2">
-                      <span className="text-[10px] font-mono text-slate-500 uppercase block tracking-wider">
+                      <span className="text-[11px] font-mono text-slate-500 uppercase block tracking-wider">
                         Dynamic Action Choices (Choose One to Execute)
                       </span>
                       <div className="grid md:grid-cols-2 gap-2">
@@ -845,10 +928,10 @@ export default function App() {
                       className="space-y-2"
                     >
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-mono text-slate-500 uppercase block tracking-wider">
+                        <span className="text-[11px] font-mono text-slate-500 uppercase block tracking-wider">
                           Custom Action Terminal
                         </span>
-                        <span className="text-[9px] font-mono text-slate-600">Type any action to trigger narrative reason logic</span>
+                        <span className="text-[10px] font-mono text-slate-600">Type any action to trigger narrative reason logic</span>
                       </div>
                       <div className="relative flex gap-2">
                         <div className="absolute left-3.5 top-1/2 transform -translate-y-1/2 text-teal-500 font-mono text-sm pointer-events-none select-none">
@@ -878,7 +961,8 @@ export default function App() {
                 </div>
 
                 {/* Right Panel: Tabs for Memory, Telemetry, and Sandboxing */}
-                <div className="w-96 border-l border-slate-800 bg-slate-900/20 flex flex-col">
+                {rightOpen && (
+                <div className="w-96 border-l border-slate-800 bg-slate-900/20 flex flex-col max-[1024px]:hidden">
                   
                   {/* Tab bar header */}
                   <div className="grid grid-cols-4 border-b border-slate-800 bg-slate-950 text-center font-mono text-xs select-none">
@@ -889,7 +973,7 @@ export default function App() {
                       }`}
                     >
                       <FileText className="h-4 w-4" />
-                      <span className="text-[10px]">Turn Logs</span>
+                      <span className="text-[11px]">Turn Logs</span>
                     </button>
                     <button
                       onClick={() => setActiveTab("memory")}
@@ -898,7 +982,7 @@ export default function App() {
                       }`}
                     >
                       <Layers className="h-4 w-4" />
-                      <span className="text-[10px]">Mem Layers</span>
+                      <span className="text-[11px]">Mem Layers</span>
                     </button>
                     <button
                       onClick={() => setActiveTab("telemetry")}
@@ -907,7 +991,7 @@ export default function App() {
                       }`}
                     >
                       <Cpu className="h-4 w-4" />
-                      <span className="text-[10px]">Telemetry</span>
+                      <span className="text-[11px]">Telemetry</span>
                     </button>
                     <button
                       onClick={() => setActiveTab("state-editor")}
@@ -916,7 +1000,7 @@ export default function App() {
                       }`}
                     >
                       <Sliders className="h-4 w-4 text-teal-400 animate-pulse" />
-                      <span className="text-[10px] text-teal-400">Sandbox</span>
+                      <span className="text-[11px] text-teal-400">Sandbox</span>
                     </button>
                   </div>
 
@@ -927,7 +1011,7 @@ export default function App() {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                           <span className="text-xs font-mono text-slate-300 uppercase font-bold">Chronological Logs</span>
-                          <span className="text-[10px] font-mono text-slate-500">{history.length} operations</span>
+                          <span className="text-[11px] font-mono text-slate-500">{history.length} operations</span>
                         </div>
                         {history.length <= 1 ? (
                           <div className="text-center py-10 text-slate-600 font-mono text-xs border border-dashed border-slate-850 rounded">
@@ -939,14 +1023,14 @@ export default function App() {
                               if (turn.id === "init") return null;
                               return (
                                 <div key={turn.id} className="bg-slate-950 p-3 rounded-lg border border-slate-850 text-xs font-mono space-y-1.5">
-                                  <div className="flex justify-between items-center text-[10px] text-slate-500">
+                                  <div className="flex justify-between items-center text-[11px] text-slate-500">
                                     <span className="text-teal-400 font-bold">Action {index}</span>
                                     <span>{turn.timestamp}</span>
                                   </div>
                                   <div className="text-slate-300 font-bold border-l border-slate-800 pl-2 py-0.5">
                                     "{turn.event}"
                                   </div>
-                                  <p className="text-slate-400 text-[11px] leading-relaxed truncate-2-lines" title={turn.narrative}>
+                                  <p className="text-slate-400 text-[12px] leading-relaxed truncate-2-lines" title={turn.narrative}>
                                     {turn.narrative.length > 100 ? `${turn.narrative.substr(0, 100)}...` : turn.narrative}
                                   </p>
                                 </div>
@@ -961,7 +1045,7 @@ export default function App() {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                           <span className="text-xs font-mono text-slate-300 uppercase font-bold">Cognitive Memory Layers</span>
-                          <span className="text-[9px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded font-mono uppercase">
+                          <span className="text-[10px] bg-teal-500/10 text-teal-400 px-1.5 py-0.5 rounded font-mono uppercase">
                             State-Committed
                           </span>
                         </div>
@@ -970,11 +1054,11 @@ export default function App() {
                         <div className="space-y-1.5 bg-slate-950 p-3 rounded-lg border border-slate-850">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-mono text-teal-400 font-bold uppercase">1. Working Memory</span>
-                            <span className="text-[9px] text-slate-500 font-mono">Immediate focus</span>
+                            <span className="text-[10px] text-slate-500 font-mono">Immediate focus</span>
                           </div>
                           <div className="space-y-1">
                             {memoryState?.working.map((w, idx) => (
-                              <div key={idx} className="text-[11px] font-mono text-slate-300 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
+                              <div key={idx} className="text-[12px] font-mono text-slate-300 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
                                 • {w}
                               </div>
                             ))}
@@ -985,11 +1069,11 @@ export default function App() {
                         <div className="space-y-1.5 bg-slate-950 p-3 rounded-lg border border-slate-850">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-mono text-teal-400 font-bold uppercase">2. Episode Memory</span>
-                            <span className="text-[9px] text-slate-500 font-mono">Chronological event sequence</span>
+                            <span className="text-[10px] text-slate-500 font-mono">Chronological event sequence</span>
                           </div>
                           <div className="space-y-1 max-h-[140px] overflow-y-auto">
                             {memoryState?.episode.map((e, idx) => (
-                              <div key={idx} className="text-[11px] font-mono text-slate-400 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
+                              <div key={idx} className="text-[12px] font-mono text-slate-400 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
                                 {idx + 1}. {e}
                               </div>
                             ))}
@@ -1000,11 +1084,11 @@ export default function App() {
                         <div className="space-y-1.5 bg-slate-950 p-3 rounded-lg border border-slate-850">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-mono text-teal-400 font-bold uppercase">3. Semantic Memory</span>
-                            <span className="text-[9px] text-slate-500 font-mono">Static World knowledge</span>
+                            <span className="text-[10px] text-slate-500 font-mono">Static World knowledge</span>
                           </div>
                           <div className="space-y-1">
                             {memoryState?.semantic.map((s, idx) => (
-                              <div key={idx} className="text-[11px] font-mono text-slate-400 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
+                              <div key={idx} className="text-[12px] font-mono text-slate-400 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
                                 💡 {s}
                               </div>
                             ))}
@@ -1015,11 +1099,11 @@ export default function App() {
                         <div className="space-y-1.5 bg-slate-950 p-3 rounded-lg border border-slate-850">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-mono text-teal-400 font-bold uppercase">4. Archive</span>
-                            <span className="text-[9px] text-slate-500 font-mono">Cold inactive memory</span>
+                            <span className="text-[10px] text-slate-500 font-mono">Cold inactive memory</span>
                           </div>
                           <div className="space-y-1">
                             {memoryState?.archive.map((a, idx) => (
-                              <div key={idx} className="text-[11px] font-mono text-slate-500 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
+                              <div key={idx} className="text-[12px] font-mono text-slate-500 bg-slate-900/60 px-2 py-1 rounded border border-slate-850">
                                 📦 {a}
                               </div>
                             ))}
@@ -1032,29 +1116,29 @@ export default function App() {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                           <span className="text-xs font-mono text-slate-300 uppercase font-bold">Event Loop Telemetry</span>
-                          <span className="text-[9px] bg-slate-950 px-2 py-0.5 border border-slate-850 rounded text-slate-500 font-mono">
+                          <span className="text-[10px] bg-slate-950 px-2 py-0.5 border border-slate-850 rounded text-slate-500 font-mono">
                             Console
                           </span>
                         </div>
 
                         {/* Execution Timeline Map */}
-                        <div className="p-3 bg-slate-950 border border-slate-850 rounded-lg space-y-3 font-mono text-[11px]">
+                        <div className="p-3 bg-slate-950 border border-slate-850 rounded-lg space-y-3 font-mono text-[12px]">
                           <div className="text-teal-400 font-bold border-b border-slate-900 pb-1">EXECUTION ROUTINE STAGES:</div>
                           
                           <div className="flex items-center gap-2 text-slate-300">
-                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[9px] font-bold">1</div>
+                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold">1</div>
                             <span>Event Captured & Parsed</span>
                           </div>
                           <div className="flex items-center gap-2 text-slate-300">
-                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[9px] font-bold">2</div>
+                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold">2</div>
                             <span>Context Composed (State + memory)</span>
                           </div>
                           <div className="flex items-center gap-2 text-slate-300">
-                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[9px] font-bold">3</div>
+                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold">3</div>
                             <span>Reasoning Outcome Computed</span>
                           </div>
                           <div className="flex items-center gap-2 text-slate-300">
-                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[9px] font-bold">4</div>
+                            <div className="h-4 w-4 bg-teal-500/10 border border-teal-500 text-teal-400 rounded-full flex items-center justify-center text-[10px] font-bold">4</div>
                             <span>Cognitive Shifts & Commits</span>
                           </div>
                         </div>
@@ -1066,7 +1150,7 @@ export default function App() {
                             <span className="animate-pulse">●</span>
                           </div>
                           {executionLogs.map((log, idx) => (
-                            <div key={idx} className="text-[10px] font-mono text-slate-300 break-words leading-relaxed py-0.5">
+                            <div key={idx} className="text-[11px] font-mono text-slate-300 break-words leading-relaxed py-0.5">
                               <span className="text-slate-500">[{idx + 1}]</span> {log}
                             </div>
                           ))}
@@ -1078,11 +1162,11 @@ export default function App() {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                           <span className="text-xs font-mono text-teal-400 uppercase font-bold">State Variables Sandbox</span>
-                          <span className="text-[9px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-900/40 font-mono uppercase font-semibold">
+                          <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded border border-red-900/40 font-mono uppercase font-semibold">
                             Overlord-Mode
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-400 leading-normal font-mono">
+                        <p className="text-[12px] text-slate-400 leading-normal font-mono">
                           Directly override state variables inside the runtime cache. These values will be passed as the direct reality vector to the AI reasoning engine on your next turn.
                         </p>
 
@@ -1104,7 +1188,7 @@ export default function App() {
 
                         {/* Attribute Modifier Sliders */}
                         <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-3">
-                          <span className="text-[11px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Modify Attributes</span>
+                          <span className="text-[12px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Modify Attributes</span>
                           {gameState && Object.entries(gameState.player.attributes).map(([attr, val]) => (
                             <div key={attr} className="space-y-1 text-xs font-mono">
                               <div className="flex justify-between">
@@ -1125,7 +1209,7 @@ export default function App() {
 
                         {/* Actor relationships sliders */}
                         <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-3">
-                          <span className="text-[11px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Modify Affinity Relationships</span>
+                          <span className="text-[12px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Modify Affinity Relationships</span>
                           {gameState && Object.entries(gameState.characters).map(([id, charVal]) => {
                             const char = charVal as CharacterState;
                             return (
@@ -1151,7 +1235,7 @@ export default function App() {
 
                         {/* Quick Add inventory item */}
                         <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-2">
-                          <span className="text-[11px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Append Item to Cargo</span>
+                          <span className="text-[12px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Append Item to Cargo</span>
                           <div className="flex gap-2">
                             <input
                               type="text"
@@ -1182,7 +1266,7 @@ export default function App() {
                           {gameState && gameState.player.inventory.length > 0 && (
                             <div className="space-y-1.5 pt-1.5">
                               {gameState.player.inventory.map((item, idx) => (
-                                <div key={idx} className="flex justify-between items-center text-[11px] font-mono bg-slate-900/60 px-2 py-1 rounded border border-slate-850 text-slate-300">
+                                <div key={idx} className="flex justify-between items-center text-[12px] font-mono bg-slate-900/60 px-2 py-1 rounded border border-slate-850 text-slate-300">
                                   <span>{item}</span>
                                   <button onClick={() => handleRemoveItem(idx)} className="text-red-500 hover:text-red-400">
                                     <Trash2 className="h-3 w-3" />
@@ -1195,17 +1279,17 @@ export default function App() {
 
                         {/* Active Directives */}
                         <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-2">
-                          <span className="text-[11px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Overlord Directives</span>
+                          <span className="text-[12px] font-mono text-slate-400 block border-b border-slate-900 pb-1">Overlord Directives</span>
                           <div className="space-y-1.5">
                             {gameState?.story.activeQuests.map((quest) => (
-                              <div key={quest.id} className="bg-slate-900/60 px-2 py-1.5 rounded border border-slate-850 flex justify-between items-center text-[11px] font-mono">
+                              <div key={quest.id} className="bg-slate-900/60 px-2 py-1.5 rounded border border-slate-850 flex justify-between items-center text-[12px] font-mono">
                                 <div className="truncate max-w-[150px]">
                                   <span className="font-bold text-slate-300">{quest.title}</span>
-                                  <p className="text-[9px] text-slate-500">{quest.status}</p>
+                                  <p className="text-[10px] text-slate-500">{quest.status}</p>
                                 </div>
                                 <button
                                   onClick={() => handleToggleQuestStatus(quest.id)}
-                                  className="text-[9px] font-bold bg-slate-950 hover:bg-slate-900 border border-slate-800 px-2 py-1 rounded text-slate-400 hover:text-white"
+                                  className="text-[10px] font-bold bg-slate-950 hover:bg-slate-900 border border-slate-800 px-2 py-1 rounded text-slate-400 hover:text-white"
                                 >
                                   Toggle Status
                                 </button>
@@ -1220,6 +1304,7 @@ export default function App() {
                   </div>
 
                 </div>
+                )}
 
               </div>
 
