@@ -265,6 +265,62 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
       runtimeOperations,
       executionLogs: [...executionLogs, "State Commited successfully."]
     };
+  } else if (scenarioId === 'wuxia-trial') {
+    if (cleanEvent.includes('符文') || cleanEvent.includes('机关') || cleanEvent.includes('触碰') || cleanEvent.includes('顺序')) {
+      narrative = "林砚秋按剑诀诗中暗藏的方位——左三右四，上二下一——逐字碰触石壁上的刻痕。指尖每过一处，青石便发出一声低沉的嗡鸣，如同潮水拍岸。当最后一字落定，整面石壁轰然中分，露出一条向下的石阶密道。一股清冽的剑气自深处涌出，吹得火折明灭不定。无崖子缓缓站起，声音沙哑却清晰：'潮生剑诀……等了你三十年。'";
+      nextState.story.flags.secret_chamber_open = true;
+      nextState.story.flags.wuyazi_trusted = true;
+      nextState.world.location = "苍山深处：剑诀密室";
+      nextState.characters.wuyazi.relationship = Math.min(100, nextState.characters.wuyazi.relationship + 20);
+      nextState.characters.wuyazi.status = "清醒";
+      nextState.characters.wuyazi.currentActivity = "稳步走向密道入口，示意林砚秋跟上。";
+      nextState.story.activeQuests = nextState.story.activeQuests.map((q: any) =>
+        q.id === 'decipher-poem' ? { ...q, status: 'completed' as const } : q
+      );
+      runtimeOperations = [
+        "Quest Completed: 石壁残诗",
+        "Location Update: 苍山深处：剑诀密室",
+        "Relationship(无崖子): +20",
+        "Story Flags Committed: secret_chamber_open = true, wuyazi_trusted = true"
+      ];
+    } else if (cleanEvent.includes('石壁') || cleanEvent.includes('诗') || cleanEvent.includes('碑文')) {
+      narrative = "林砚秋举起火折，凑近石壁。飞鱼纹章之下，一行行剑诀以铁画银钩的笔法刻入青石——「潮生碧落」「剑起沧溟」「七返还转」「水断云横」……唯独末句处被人以利器凿去，只留下斑驳的凿痕。但他的手刚触碰那凿痕，石壁上竟透出一层淡淡的荧光，残缺字迹若隐若现——这石碑另有机关！";
+      nextState.story.flags.poem_identified = true;
+      if (!nextState.player.inventory.includes('剑谱拓片'))
+        nextState.player.inventory.push('剑谱拓片');
+      nextState.characters.wuyazi.relationship = Math.min(100, nextState.characters.wuyazi.relationship + 15);
+      nextState.characters.wuyazi.currentActivity = "微微睁开眼，盯着林砚秋手中的拓片，嘴角浮起一丝笑意。";
+      runtimeOperations = [
+        "Story Flag Committed: poem_identified = true",
+        "Inventory Added: 剑谱拓片",
+        "Relationship(无崖子): +15"
+      ];
+    } else {
+      narrative = `林砚秋${event.includes('尝试') ? '' : '尝试'}: "${event}"。石窟内只有水滴声回应。石壁上的字迹在火折微光下缥缈如雾，无崖子依旧垂目不语，仿佛一尊石雕。`;
+      nextState.player.hp = Math.max(10, nextState.player.hp - 5);
+      runtimeOperations = [
+        "State Update: 石窟阴寒之气侵蚀",
+        "Player HP: -5（寒气入体）"
+      ];
+    }
+
+    nextMemory.working = ["石壁残诗已拓下，末句虽缺，但荧光暗示机关存在。", "无崖子的态度似乎因拓片而有所松动。"];
+    nextMemory.episode.push(`Player executed: ${event}`);
+
+    return {
+      provider: "simulator",
+      narrative,
+      state: nextState,
+      memory: nextMemory,
+      playerChoices: [
+        "对照剑谱拓片，尝试按诗句中的方位顺序触碰石壁",
+        "走向无崖子，将半块玉玦递给他看",
+        "用观澜铁剑的剑尖轻叩石壁，试探机关",
+        "服下一颗金创药，运功调息恢复伤势"
+      ],
+      runtimeOperations,
+      executionLogs: [...executionLogs, "State Commited successfully."]
+    };
   } else {
     // Cosmic Horror Fallback
     if (cleanEvent.includes('bookshelf') || cleanEvent.includes('passage') || cleanEvent.includes('clue')) {

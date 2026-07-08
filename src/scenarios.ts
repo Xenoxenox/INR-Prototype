@@ -203,5 +203,68 @@ export const SCENARIOS: Scenario[] = [
       semantic: ['Evelyn Pendelton came to Blackwood Manor to catalog the late Lord Blackwood\'s private collection.', 'The Blackwood family line vanished entirely in 1898 during a mysterious storm.'],
       archive: ['Arthur and Evelyn were orphaned as children and have always shared an unspoken mental link when one is in danger.']
     }
+  },
+  {
+    id: 'wuxia-trial',
+    title: '石壁遗珠',
+    genre: '武侠解谜',
+    description: '坠落山崖，误入苍山深处一座无名石窟。石壁上刻有观澜剑派失传的剑诀残诗，破解诗谜，或可得见潮生剑诀的真面目。',
+    coverImagePrompt: 'Ancient Chinese stone grotto with faded calligraphy carved into moss-covered walls, a lone swordsman holding a lantern, mysterious blue light filtering through cracks, ink-wash painting style',
+    initialState: {
+      world: {
+        currentDay: 1,
+        weather: '山雾弥漫',
+        time: '黄昏',
+        location: '苍山深处：无名石窟',
+        details: {
+          atmosphere: '石窟内潮湿阴冷，石壁上爬满青苔，隐约可见大片刻痕。深处的黑暗中有水滴声，如同钟摆般规律。',
+          grottoState: '石壁上的飞鱼纹章已被青苔半掩，下方刻有残缺的七言诗，末句遭人凿去。'
+        }
+      },
+      player: {
+        name: '林砚秋',
+        hp: 75,
+        maxHp: 100,
+        inventory: ['观澜铁剑', '半块玉玦', '金创药'],
+        statusEffects: ['经脉受损（轻度）'],
+        attributes: {
+          悟性: 8,
+          剑法: 6,
+          内功: 5,
+          阅历: 4
+        }
+      },
+      characters: {
+        'wuyazi': {
+          name: '无崖子',
+          relationship: -5,
+          goals: '守护石窟秘境，等候观澜剑派后人前来破解剑诀，将「潮生剑诀」传承下去。',
+          status: '半疯半醒',
+          currentActivity: '盘坐在石窟角落的蒲团上，双目半闭，口中低声诵念着零碎的剑诀口诀。'
+        }
+      },
+      story: {
+        activeQuests: [
+          {
+            id: 'decipher-poem',
+            title: '石壁残诗',
+            description: '辨认石壁上观澜剑诀的残诗，寻找缺失的末句，破解开启密室的机关。',
+            status: 'active'
+          }
+        ],
+        completedEvents: [],
+        flags: {
+          'poem_identified': false,
+          'secret_chamber_open': false,
+          'wuyazi_trusted': false
+        }
+      }
+    },
+    initialMemory: {
+      working: ['石壁上刻有八行残缺的七言诗，末句缺失。', '无崖子盘坐石窟角落，双目半闭，低声诵念着什么。'],
+      episode: ['被青城派三个黑衣剑客追杀，坠落山崖后爬入石窟避敌。', '苏醒后发现石壁上刻有观澜剑派的飞鱼纹章。'],
+      semantic: ['观澜剑派三十年前遭江湖各派围攻灭门，镇派绝学「潮生剑诀」从此失传。', '观澜剑诀以"水"为法，八字一句暗合潮汐进退之理。'],
+      archive: ['师父临终前将半块玉玦塞给林砚秋，说"另一半在石窟中等你"。']
+    }
   }
 ];

@@ -75,6 +75,22 @@ nextState.characters.id.relationship = Math.min(100, Math.max(-100, ... + delta)
 **Cause:** LLM emitted an operation the `OperationValidator` rejected (bad characterId, unknown questId, etc.)  
 **Fix:** Check `OperationValidator.ts` for the rejection reason; update the LLM system prompt in `server.ts` to constrain the operation or widen the validator.
 
+### Keyword collision — Turn N+1 narrative identical to Turn N (simulator path only)
+
+**Symptom:** The eval narrative log shows the same story text for two consecutive turns
+despite different events.  e.g. Turn 1 "辨认碑文" and Turn 2 "触碰符文" both produce the
+"举起火折，凑近石壁…" paragraph.
+
+**Cause:** A compound word (`诗句`, `剑气`) in the Turn 2 event contains a broader
+single-character keyword (`诗`, `剑`) from an earlier branch.  The `if`/`else if` chain
+matches the first branch before reaching the correct one.
+
+**Fix in `server.ts`:** Reorder branches most-specific-first — e.g. `符文`/`机关`/`触碰`
+before `石壁`/`诗`/`碑文`.
+
+**Fix in `eval-scripts/<id>.json`:** Narrow the event text to avoid compound words —
+e.g. `按方位顺序触碰发光的符文机关` instead of `按照诗句暗示的方位顺序触碰石壁上的符文机关`.
+
 ### Narrative quality issues
 
 Narrative log is for **human review only** — no automated score. Flag turns where:

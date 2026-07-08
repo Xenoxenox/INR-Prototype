@@ -106,6 +106,11 @@ export default function App() {
           "Equip your Aether-Goggles to scan the layout for mechanical anomalies",
           "Yell update reports back to Captain Sterling via the communication tube",
           "Inspect the overheating clockwork maintenance automaton Ignis"
+        ] : scenario.id === 'wuxia-trial' ? [
+          "对照剑谱拓片，尝试按诗句中的方位顺序触碰石壁",
+          "走向无崖子，将半块玉玦递给他看",
+          "用观澜铁剑的剑尖轻叩石壁，试探机关",
+          "服下一颗金创药，运功调息恢复伤势"
         ] : [
           "Inspect the dark, eastern bookshelves for the Tide Passage lock",
           "Raise your kerosene lantern to fully illuminate the shadowed alcoves",

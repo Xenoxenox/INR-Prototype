@@ -73,11 +73,32 @@ block (`cyberpunk-detective`, `steampunk-airship`, `cosmic-horror`) for the full
 
 **Inventory guard:** always check `includes()` before `push()` — duplicate items fail the eval invariant.
 
+### Keyword ordering trap
+
+Single-character keywords (`诗`, `书`, `剑`) will match compound words (`诗句`, `书架`, `剑气`).
+If a later-level event contains a compound word that triggers an earlier branch, the player
+gets the wrong narrative.  Two rules prevent this:
+
+1. **Order more-specific branches first.**  Place `符文`/`机关`/`触碰` before `石壁`/`诗`/`碑文`
+   so compound matches ("触碰……符文") reach the right branch.
+2. **Keep eval fixture events narrow.**  Prefer `按方位顺序触碰发光的符文机关` over
+   `按照诗句暗示的方位顺序触碰石壁上的符文机关` — the latter contains `诗` and `石壁`,
+   leaking into the earlier branch even after reordering.
+
+### Frontend initial choices
+
+`src/App.tsx` `handleSelectScenario()` hardcodes a ternary chain for initial `playerChoices`.
+Every new scenario MUST add its own branch or the cosmic-horror fallback choices will appear
+instead.  Match the four choices to your simulator's `playerChoices` return value.
+
 ## Authoring checklist
 
 - [ ] Scenario object added to `SCENARIOS` array in `src/scenarios.ts`
 - [ ] Simulator branch added to `runSimulatorFallback()` for the new `scenarioId`
+- [ ] Simulator branches ordered most-specific-first to avoid keyword collision
 - [ ] At least one `else` fallback branch in the simulator block
 - [ ] All inventory `push()` calls guarded against duplicates
 - [ ] `eval-scripts/<id>.json` created with events that target the new keyword branches
+- [ ] `eval-scripts/<id>.json` events are narrow — avoid compound words containing earlier-branch keywords
+- [ ] `src/App.tsx` `handleSelectScenario()` — add `playerChoices` ternary branch for the new `scenarioId`
 - [ ] `npm run eval` passes 0 invariant failures for the new scenario
