@@ -10,9 +10,12 @@ npm run dev          # start dev server (Express + Vite HMR) on port 3000
 npm run build        # Vite SPA build → dist/, then esbuild bundles server.ts → dist/server.cjs
 npm run start        # run production bundle (dist/server.cjs)
 npm run lint         # tsc --noEmit (TypeScript type-check only; no ESLint configured)
+npm run eval         # replay fixtures through /api/inr/event/v2, check correctness invariants
+npm run judge <id>   # LLM-as-judge narrative quality score + pairwise delta (needs LLM key)
+npm run judge:validate <id>  # synthetic-negative validity suite for the judge prompt
 ```
 
-Requires either `GEMINI_API_KEY` in `.env.local` or a complete OpenAI-compatible config (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`). Without either, the app runs in simulator fallback mode with hardcoded deterministic story branches.
+Requires either `GEMINI_API_KEY` in `.env.local` or a complete OpenAI-compatible config (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`). Without either, the app runs in simulator fallback mode with hardcoded deterministic story branches. Note: `npm run eval` works in simulator mode (calls localhost), but `npm run judge` requires a real LLM key — it calls the provider directly with no simulator fallback.
 
 ## Architecture
 
@@ -59,10 +62,23 @@ MemoryLayers
 
 ### Scenarios — `src/scenarios.ts`
 
-Three prebuilt scenarios with fully populated `initialState` and `initialMemory`:
+Four prebuilt scenarios with fully populated `initialState` and `initialMemory`:
 - `cyberpunk-detective` — noir cyberpunk, Sector 7
 - `steampunk-airship` — steampunk, airship Zephyr
 - `cosmic-horror` — Lovecraftian mystery, Blackwood Manor
+- `wuxia-trial` — 武侠解谜, 石壁遗珠 (poem-decipher puzzle in a hidden grotto)
+
+Each scenario with keyword-matched simulator branches in `runSimulatorFallback()` also has hardcoded initial `playerChoices` in `src/App.tsx`. When adding a scenario, add its choices there too or it falls back to another scenario's choices.
+
+### Evaluation tooling — `scripts/`
+
+Local loop-engineering harness (no CI, no test framework — deliberate). Full workflow in README's "Loop Engineering Workflow" section.
+
+- `scripts/eval.ts` — replays scripted events (`eval-scripts/<id>.json`) through `/api/inr/event/v2`, mirrors `RuntimeController.checkInvariants()` on the response. State injection: seeds from `scenario.initialState`, carries forward each turn. Output: `artifacts/eval/eval-<ts>.md` + `.jsonl`. Arg is a `scenarioId` string, not a file path.
+- `scripts/judge.ts` — LLM-as-judge over the latest eval `.jsonl`. Scores 4 dims (Tension ×1.5, Coherence/Voice/Consistency ×1.0), normalised 0–100, verdict tiers. Writes `judge-<ts>.md` + `judge-<ts>.json` (metadata). On the next run, loads prev `.json` → prev eval `.jsonl` → one **pairwise A/B LLM call** (chosen over score-diff delta because absolute scores are too noisy — observed ±2–3 on a 5-pt scale across identical inputs). `rubricOverrides` in `eval-scripts/<id>.json` inject per-scenario Voice criteria.
+- `scripts/judge-validate.ts` — discriminative-validity suite. Injects 6 known-bad mutations, asserts the judge's target dimension drops. Turns the judge from an unverifiable oracle into a falsifiable instrument. Run after editing the judge prompt.
+
+Three agent skills document these workflows: `.claude/skills/inr-scenario-author`, `inr-eval-reviewer`, `inr-narrative-judge`.
 
 ### Styling
 
@@ -78,3 +94,6 @@ TailwindCSS v4 via Vite plugin (`@tailwindcss/vite`). Fonts: Inter, JetBrains Mo
 - Do not call `getGeminiClient()` before provider dispatch. It blocks OpenAI-compatible runs on machines without `GEMINI_API_KEY`.
 - Chrome DevTools network exports include request bodies. Redact or delete raw request evidence before saving artifacts because `llmConfig.apiKey` is sent in the request body. Put screenshots and smoke evidence under `artifacts/<semantic-run-name>/`, not the repo root.
 - Background dev servers started from Codex sandboxed `Start-Process` may be reaped after the command exits. For browser smoke tests, prefer a user-started `npm run dev` or explicitly approved unsandboxed process.
+- `scripts/judge.ts` calls the LLM provider directly (not via localhost), so it loads `.env.local` with its own `dotenv.config()` and needs network reachability to the provider. Node's built-in `fetch()` ignores `http_proxy`/`https_proxy` env vars — on networks where Gemini is unreachable (e.g. mainland China), use the OpenAI-compat path instead of a proxy.
+- Judge pairwise delta only triggers from the **second** judge run onward — it needs a prior `judge-<ts>.json` for the same scenario with a *different* `evalTs`. Run `npm run eval` again between judge runs to produce a new `evalTs`, or the two runs compare the same eval and skip pairwise.
+- Judge absolute scores are noisy (observed Tension 4→2, Consistency 5→2 across identical inputs at temperature 0.1). Trust pairwise direction and large gaps, not small absolute-score diffs. Known-missed mutations in the 4-dim PoC: `REPEAT_PHRASE` (no dedicated repetition check in Voice), `CAUSALITY_BREAK` on short 2-turn replays.
