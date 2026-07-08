@@ -1,0 +1,8 @@
+{
+  "scenarioId": "cosmic-horror",
+  "mode": "manual",
+  "events": [
+    "Search the bookshelf for clues about Lord Blackwood's disappearance",
+    "Descend into the secret cellar passage with the lantern"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "scenarioId": "cyberpunk-detective",
+  "mode": "manual",
+  "events": [
+    "Have A.R.I.A. decrypt the Saito corporate datacore",
+    "Head to the Red Line lounge to find Vex",
+    "Use the Neural-Dampener Injector to steady the neural glitch"
+  ]
+}
