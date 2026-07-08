@@ -266,6 +266,14 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
       executionLogs: [...executionLogs, "State Commited successfully."]
     };
   } else if (scenarioId === 'wuxia-trial') {
+    let playerChoices = [
+      "对照剑谱拓片，尝试按诗句中的方位顺序触碰石壁",
+      "走向无崖子，将半块玉玦递给他看",
+      "用观澜铁剑的剑尖轻叩石壁，试探机关",
+      "服下一颗金创药，运功调息恢复伤势"
+    ];
+    let working = ["石壁残诗已拓下，末句虽缺，但荧光暗示机关存在。", "无崖子的态度似乎因拓片而有所松动。"];
+
     if (cleanEvent.includes('符文') || cleanEvent.includes('机关') || cleanEvent.includes('触碰') || cleanEvent.includes('顺序')) {
       narrative = "林砚秋按剑诀诗中暗藏的方位——左三右四，上二下一——逐字碰触石壁上的刻痕。指尖每过一处，青石便发出一声低沉的嗡鸣，如同潮水拍岸。当最后一字落定，整面石壁轰然中分，露出一条向下的石阶密道。一股清冽的剑气自深处涌出，吹得火折明灭不定。无崖子缓缓站起，声音沙哑却清晰：'潮生剑诀……等了你三十年。'";
       nextState.story.flags.secret_chamber_open = true;
@@ -283,6 +291,13 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
         "Relationship(无崖子): +20",
         "Story Flags Committed: secret_chamber_open = true, wuyazi_trusted = true"
       ];
+      playerChoices = [
+        "沿露出的石阶密道向下探入深处",
+        "请无崖子讲明潮生剑诀的来历",
+        "取出半块玉玦递给无崖子辨认",
+        "先为无崖子调息护脉再入密道"
+      ];
+      working = ["石壁已开启，向下的石阶密道露出清冽剑气。", "无崖子确认潮生剑诀在密道深处，并开始信任林砚秋。"];
     } else if (cleanEvent.includes('石壁') || cleanEvent.includes('诗') || cleanEvent.includes('碑文')) {
       narrative = "林砚秋举起火折，凑近石壁。飞鱼纹章之下，一行行剑诀以铁画银钩的笔法刻入青石——「潮生碧落」「剑起沧溟」「七返还转」「水断云横」……唯独末句处被人以利器凿去，只留下斑驳的凿痕。但他的手刚触碰那凿痕，石壁上竟透出一层淡淡的荧光，残缺字迹若隐若现——这石碑另有机关！";
       nextState.story.flags.poem_identified = true;
@@ -295,6 +310,111 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
         "Inventory Added: 剑谱拓片",
         "Relationship(无崖子): +15"
       ];
+    } else if (cleanEvent.includes('密道') || cleanEvent.includes('石阶') || cleanEvent.includes('密室')) {
+      narrative = "林砚秋沿石阶向下，潮声在密道尽头层层回荡，火折映出两侧青石上密密刻着的剑路。密室豁然开阔，完整的潮生剑诀盘绕四壁，剑气随水声一涨一落。无崖子拄剑跟入，指向最深处的石台，示意此处才是观澜剑派真正的藏诀地。";
+      nextState.story.flags.descended_chamber = true;
+      nextState.world.location = "苍山深处：潮音洞天";
+      nextState.characters.wuyazi.currentActivity = "立在潮音洞天石台前，辨认四壁剑诀。";
+      runtimeOperations = [
+        "Story Flag Committed: descended_chamber = true",
+        "Location Update: 苍山深处：潮音洞天",
+        "Character Activity Update: 无崖子辨认剑诀"
+      ];
+      playerChoices = [
+        "细读青石四壁上的潮生剑诀总纲",
+        "请无崖子指出被凿去的末句所在",
+        "取出半块玉玦与石台凹痕相对",
+        "绕密室一周寻找潮声来处"
+      ];
+      working = ["林砚秋已进入潮音洞天，四壁刻有完整潮生剑诀。", "无崖子随行辨认密室石台与剑诀来历。"];
+    } else if (cleanEvent.includes('玉玦') || cleanEvent.includes('递给')) {
+      narrative = "无崖子接过半块玉玦，袖中竟滑出另一半，同纹相合时，青石石台内传来一声清响。他低声道出观澜剑派旧事：林砚秋所持玉玦本是掌门信物，残诗末句被凿去，是为避开当年叛徒循诗夺诀。石壁上的剑气随玉纹合拢而转缓，像在为失散多年的门脉重新开路。";
+      nextState.story.flags.jade_recognized = true;
+      nextState.characters.wuyazi.relationship = Math.min(100, nextState.characters.wuyazi.relationship + 25);
+      nextState.characters.wuyazi.currentActivity = "讲述观澜剑派旧事，并核认林砚秋的玉玦信物。";
+      runtimeOperations = [
+        "Story Flag Committed: jade_recognized = true",
+        "Relationship(无崖子): +25",
+        "Character Activity Update: 无崖子核认玉玦"
+      ];
+      playerChoices = [
+        "追问残诗末句为何必须毁去",
+        "请无崖子说明林家与观澜剑派的渊源",
+        "将合璧玉玦嵌入石台凹槽",
+        "记下石壁剑气转缓后的剑路变化"
+      ];
+      working = ["无崖子认出半块玉玦，确认林砚秋与观澜剑派有关。", "残诗末句被凿去，是为防旧日叛徒循诗夺诀。"];
+    } else if (cleanEvent.includes('参悟') || cleanEvent.includes('心法') || cleanEvent.includes('图谱')) {
+      narrative = "林砚秋按青石图谱逐段参悟，石窟潮声与内功吐纳渐渐合拍，剑诀总纲显出起承转合。图谱虽全，第一式后的换气处仍有半寸空白，像是前人故意留下的试剑关口。他将图谱拓入随身绢册，留待实演时补齐。";
+      if (!nextState.player.inventory.includes('潮生剑诀图谱'))
+        nextState.player.inventory.push('潮生剑诀图谱');
+      nextState.story.flags.mantra_studied = true;
+      nextState.characters.wuyazi.currentActivity = "守在石台旁校正林砚秋参悟的心法次序。";
+      runtimeOperations = [
+        "Inventory Added: 潮生剑诀图谱",
+        "Story Flag Committed: mantra_studied = true",
+        "Character Activity Update: 无崖子校正心法"
+      ];
+      playerChoices = [
+        "依图谱运转周天试探第一式",
+        "请无崖子补全换气处的空白",
+        "将潮声节拍记入剑诀图谱旁注",
+        "先收束内息稳住丹田"
+      ];
+      working = ["林砚秋已参悟潮生剑诀总纲，并取得潮生剑诀图谱。", "第一式换气处仍有空白，需要实演或无崖子指点补齐。"];
+    } else if (cleanEvent.includes('演练') || cleanEvent.includes('第一式') || cleanEvent.includes('真气')) {
+      narrative = "林砚秋循图运转真气，观澜铁剑一出鞘，剑气贴着石壁划出半轮潮痕。第一式将成未成时，内功回流猛撞经脉，胸口一阵腥甜被他强行压下。无崖子以剑鞘点住他腕脉，指出潮生剑诀重在借势，不可硬催。";
+      nextState.player.hp = Math.max(10, nextState.player.hp - 10);
+      nextState.story.flags.first_form_attempted = true;
+      nextState.characters.wuyazi.currentActivity = "以剑鞘校正林砚秋第一式的运气路线。";
+      runtimeOperations = [
+        "Player HP: -10（真气反噬）",
+        "Story Flag Committed: first_form_attempted = true",
+        "Character Activity Update: 无崖子校正剑式"
+      ];
+      playerChoices = [
+        "按无崖子所示改走借势剑路",
+        "停下调息压住经脉反噬",
+        "观察石壁潮痕判断剑式缺口",
+        "询问第一式为何忌讳硬催真气"
+      ];
+      working = ["林砚秋已尝试潮生剑诀第一式，但真气反噬伤及经脉。", "无崖子指出第一式应借潮势，不可硬催内功。"];
+    } else if (cleanEvent.includes('震动') || cleanEvent.includes('落石') || cleanEvent.includes('躲避')) {
+      narrative = "石窟深处忽然震动，青石裂缝中滚下碎块，火折光影被尘雾吞没。林砚秋横剑护住无崖子，肩背硬受两块落石，仍借半成的剑气劈开前路。无崖子扶住石台残沿，指出潮声变急，地下水脉正在冲塌洞腹。";
+      nextState.player.hp = Math.max(10, nextState.player.hp - 15);
+      nextState.characters.wuyazi.relationship = Math.min(100, nextState.characters.wuyazi.relationship + 15);
+      nextState.story.flags.grotto_collapsing = true;
+      nextState.characters.wuyazi.currentActivity = "辨听水脉走势，催促林砚秋尽快离开坍塌石窟。";
+      runtimeOperations = [
+        "Player HP: -15（落石砸伤）",
+        "Relationship(无崖子): +15",
+        "Story Flag Committed: grotto_collapsing = true"
+      ];
+      playerChoices = [
+        "护着无崖子冲向潮声最急处",
+        "以半成剑式劈开坠落青石",
+        "寻找石台后方是否有退路",
+        "扯下外袍包扎肩背伤口"
+      ];
+      working = ["潮音洞天开始坍塌，地下水脉正在冲裂石窟。", "林砚秋护住无崖子后受伤，无崖子关系进一步提升。"];
+    } else if (cleanEvent.includes('背负') || cleanEvent.includes('寻路') || cleanEvent.includes('脱出')) {
+      narrative = "林砚秋背起无崖子，循着水声穿过倾斜石道，火折在湿风里只剩一点微红。两人从地下溪口跌出山腹，身后石窟轰然合拢，残余剑气随水雾散入夜色。无崖子望向溪畔旧碑，低声说观澜剑派的债，终要从今夜重新清算。";
+      nextState.world.location = "苍山山脚：观澜溪畔";
+      nextState.characters.wuyazi.relationship = Math.min(100, nextState.characters.wuyazi.relationship + 10);
+      nextState.story.flags.escaped_grotto = true;
+      nextState.characters.wuyazi.currentActivity = "在观澜溪畔辨认旧碑，准备重查观澜剑派旧债。";
+      runtimeOperations = [
+        "Location Update: 苍山山脚：观澜溪畔",
+        "Relationship(无崖子): +10",
+        "Story Flag Committed: escaped_grotto = true"
+      ];
+      playerChoices = [
+        "查看观澜溪畔旧碑上的新裂痕",
+        "请无崖子列出当年叛徒名号",
+        "先在溪畔替无崖子处理旧伤",
+        "回望坍塌山腹确认无人追出"
+      ];
+      working = ["林砚秋已背负无崖子脱出山腹，到达苍山山脚观澜溪畔。", "潮生剑诀线索转向观澜剑派旧债与当年叛徒。"];
     } else {
       narrative = `林砚秋${event.includes('尝试') ? '' : '尝试'}: "${event}"。石窟内只有水滴声回应。石壁上的字迹在火折微光下缥缈如雾，无崖子依旧垂目不语，仿佛一尊石雕。`;
       nextState.player.hp = Math.max(10, nextState.player.hp - 5);
@@ -304,7 +424,7 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
       ];
     }
 
-    nextMemory.working = ["石壁残诗已拓下，末句虽缺，但荧光暗示机关存在。", "无崖子的态度似乎因拓片而有所松动。"];
+    nextMemory.working = working;
     nextMemory.episode.push(`Player executed: ${event}`);
 
     return {
@@ -312,12 +432,7 @@ function runSimulatorFallback(scenarioId: string, state: any, memory: any, event
       narrative,
       state: nextState,
       memory: nextMemory,
-      playerChoices: [
-        "对照剑谱拓片，尝试按诗句中的方位顺序触碰石壁",
-        "走向无崖子，将半块玉玦递给他看",
-        "用观澜铁剑的剑尖轻叩石壁，试探机关",
-        "服下一颗金创药，运功调息恢复伤势"
-      ],
+      playerChoices,
       runtimeOperations,
       executionLogs: [...executionLogs, "State Commited successfully."]
     };

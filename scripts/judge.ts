@@ -424,13 +424,102 @@ function writeReport(
   return outPath;
 }
 
+const SCORE_DIMS: Array<keyof JudgeScores> = ["Tension", "Coherence", "Voice", "Consistency"];
+
+type ScoreStats = { mean: number; sd: number; min: number; max: number };
+type JudgeSample = { index: number; scores: Record<keyof JudgeScores, number>; normalized: number };
+
+function normalizedFromScores(scores: JudgeScores): number {
+  const weightedTotal =
+    scores.Tension.score * BASE_WEIGHTS.Tension +
+    scores.Coherence.score * BASE_WEIGHTS.Coherence +
+    scores.Voice.score * BASE_WEIGHTS.Voice +
+    scores.Consistency.score * BASE_WEIGHTS.Consistency;
+  return Math.round((weightedTotal / MAX_SCORE) * 1000) / 10;
+}
+
+function summarize(values: number[]): ScoreStats {
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1);
+  return { mean, sd: Math.sqrt(variance), min: Math.min(...values), max: Math.max(...values) };
+}
+
+function oneDecimal(n: number): string {
+  return n.toFixed(1);
+}
+
+function writeNoiseReport(
+  scenarioId: string,
+  evalTs: string,
+  requested: number,
+  samples: JudgeSample[],
+  ts: string
+): string {
+  mkdirSync(ARTIFACTS_JUDGE_DIR, { recursive: true });
+  const statEntries = [
+    ...SCORE_DIMS.map((dim) => [dim, summarize(samples.map((s) => s.scores[dim]))] as const),
+    ["normalized", summarize(samples.map((s) => s.normalized))] as const,
+  ];
+
+  const sampleRows = samples
+    .map(
+      (s) =>
+        `| ${s.index} | ${SCORE_DIMS.map((dim) => s.scores[dim]).join(" | ")} | ${oneDecimal(s.normalized)} |`
+    )
+    .join("\n");
+  const statRows = statEntries
+    .map(
+      ([name, stat]) =>
+        `| ${name} | ${oneDecimal(stat.mean)} | ${oneDecimal(stat.sd)} | ${oneDecimal(stat.min)} | ${oneDecimal(stat.max)} |`
+    )
+    .join("\n");
+  const modelEnv = useOpenAI ? "OPENAI_MODEL" : "GEMINI_MODEL";
+  const outPath = join(ARTIFACTS_JUDGE_DIR, `judge-noise-${ts}.md`);
+
+  writeFileSync(
+    outPath,
+    `# INR Judge Noise — ${ts}\n\n` +
+      `**Scenario:** ${scenarioId} · **Eval:** eval-${evalTs} · **Samples:** ${requested} requested / ${samples.length} succeeded · **Model env:** ${modelEnv}\n\n` +
+      `## Samples\n\n` +
+      `| # | Tension | Coherence | Voice | Consistency | Normalized |\n` +
+      `|---|---|---|---|---|---|\n${sampleRows}\n\n` +
+      `## Stats\n\n` +
+      `| Metric | Mean | Stddev | Min | Max |\n` +
+      `|---|---|---|---|---|\n${statRows}\n`,
+    "utf-8"
+  );
+  return outPath;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const scenarioId = argv.find((a) => !a.startsWith("--"));
+  let samples = 1;
+  const parseSamples = (raw: string): number => {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 2 || value > 20) {
+      console.error(`Invalid --samples value: ${raw} (expected 2..20)`);
+      process.exit(1);
+    }
+    return value;
+  };
+  for (const flag of argv.filter((a) => a.startsWith("--"))) {
+    const match = flag.match(/^--samples=(\d+)$/);
+    if (!match) {
+      console.error(`Unknown flag: ${flag}`);
+      process.exit(1);
+    }
+    samples = parseSamples(match[1]);
+  }
+  if (process.env.npm_config_sample) {
+    console.error(`Unknown flag: --sample=${process.env.npm_config_sample}`);
+    process.exit(1);
+  }
+  if (process.env.npm_config_samples) samples = parseSamples(process.env.npm_config_samples);
   if (!scenarioId) {
-    console.error("Usage: npx tsx scripts/judge.ts <scenarioId>");
+    console.error("Usage: npx tsx scripts/judge.ts <scenarioId> [--samples=2..20]");
     process.exit(1);
   }
 
@@ -440,17 +529,48 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  process.stdout.write(`▶ judge ${scenarioId}… `);
+  process.stdout.write(samples > 1 ? `▶ judge ${scenarioId} samples=${samples}… ` : `▶ judge ${scenarioId}… `);
 
   // 1. Load current eval turns
   const { turns, evalTs } = loadLatestEvalTurns(scenarioId);
   const overrides = loadRubricOverrides(scenarioId);
 
+  const scoringSystemPrompt = buildScoringSystemPrompt(scenario.genre ?? scenario.id, overrides);
+  const scoringUserPrompt = buildScoringUserPrompt(turns, scenario.title);
+
+  if (samples > 1) {
+    const results: JudgeSample[] = [];
+    for (let i = 1; i <= samples; i++) {
+      try {
+        const resp = await callLLM<LLMJudgeResponse>(scoringSystemPrompt, scoringUserPrompt);
+        results.push({
+          index: i,
+          scores: Object.fromEntries(SCORE_DIMS.map((dim) => [dim, resp.scores[dim].score])) as Record<keyof JudgeScores, number>,
+          normalized: normalizedFromScores(resp.scores),
+        });
+        process.stdout.write(`${i} `);
+      } catch (err) {
+        console.warn(`\nsample ${i} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (results.length < 2) {
+      console.error(`samples failed: ${results.length}/${samples} succeeded`);
+      process.exit(1);
+    }
+    const ts = runTimestamp();
+    const outPath = writeNoiseReport(scenarioId, evalTs, samples, results, ts);
+    const stats = [
+      ...SCORE_DIMS.map((dim) => [dim, summarize(results.map((s) => s.scores[dim]))] as const),
+      ["normalized", summarize(results.map((s) => s.normalized))] as const,
+    ];
+    console.log("done");
+    for (const [name, stat] of stats) console.log(`${name}: ${oneDecimal(stat.mean)}±${oneDecimal(stat.sd)}`);
+    console.log(outPath);
+    return;
+  }
+
   // 2. Score current replay
-  const scoringResp = await callLLM<LLMJudgeResponse>(
-    buildScoringSystemPrompt(scenario.genre ?? scenario.id, overrides),
-    buildScoringUserPrompt(turns, scenario.title)
-  );
+  const scoringResp = await callLLM<LLMJudgeResponse>(scoringSystemPrompt, scoringUserPrompt);
 
   const weighted_total =
     scoringResp.scores.Tension.score * BASE_WEIGHTS.Tension +
